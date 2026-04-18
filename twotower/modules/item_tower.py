@@ -7,10 +7,8 @@ from twotower.config import TwoTowerConfig
 class ItemTower(nn.Module):
     def __init__(self, num_embeddings: int, config: TwoTowerConfig):
         super().__init__()
-        self.embedding = nn.Embedding(
-            num_embeddings=num_embeddings,
-            embedding_dim=config.item_embedding_dim,
-        )
+        self.embedding = nn.Embedding(num_embeddings=num_embeddings,embedding_dim=config.item_embedding_dim)
+
         self.fc = nn.Linear(config.item_embedding_dim, config.hidden_dim)
         self.norm = nn.LayerNorm(config.hidden_dim)
 

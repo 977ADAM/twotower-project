@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import asdict
 from pathlib import Path
+from typing import Sequence, TypeAlias
 
 import pandas as pd
 import torch
@@ -11,11 +12,13 @@ from rich.console import Console
 from torch.utils.data import DataLoader, TensorDataset
 
 from twotower.config import TwoTowerConfig
-from twotower.data import normalize_interactions, prepare_interactions, split_interactions
-from twotower.user_tower import UserTower
-from twotower.item_tower import ItemTower
+from twotower.data import normalize_interactions, split_interactions
+from twotower.modules.user_tower import UserTower
+from twotower.modules.item_tower import ItemTower
 
 console = Console()
+
+TargetLike: TypeAlias = pd.Series | Sequence[float]
 
 class TwoTowerBase(nn.Module):
     def __init__(
@@ -73,12 +76,23 @@ class TwoTower(TwoTowerBase):
 
     def fit(
         self,
-        train_df: pd.DataFrame,
-        valid_df: pd.DataFrame,
+        *,
+        X_train: pd.DataFrame,
+        y_train: TargetLike,
+        X_valid: pd.DataFrame,
+        y_valid: TargetLike,
     ) -> list[dict[str, float]]:
-        self._fit_id_mappings(train_df)
-        self.train_df = self._prepare_interactions(train_df, apply_sampling=True)
-        self.valid_df = self._prepare_interactions(valid_df, apply_sampling=False)
+        """Fit the model on interaction pairs.
+
+        `X_train` and `X_valid` must contain `user_id` and `banner_id` columns.
+        `y_train` and `y_valid` must contain the corresponding binary labels.
+        """
+        self.train_df, self.valid_df = self._prepare_fit_inputs(
+            X_train=X_train,
+            y_train=y_train,
+            X_valid=X_valid,
+            y_valid=y_valid,
+        )
         self.build_towers(len(self.idx_to_user_id), len(self.idx_to_item_id))
         self.to(self.device)
         self._invalidate_item_embedding_cache()
@@ -123,20 +137,6 @@ class TwoTower(TwoTowerBase):
 
         return self.train_history
 
-    def fit_from_interactions(
-        self,
-        interactions_df: pd.DataFrame,
-    ) -> tuple[list[dict[str, float]], pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-        normalized_interactions = normalize_interactions(interactions_df)
-        train_df, valid_df, test_df = split_interactions(
-            normalized_interactions,
-            validation_ratio=self.config.validation_ratio,
-            test_ratio=self.config.test_ratio,
-        )
-        history = self.fit(train_df, valid_df)
-        prepared_test_df = self._prepare_interactions(test_df, apply_sampling=False)
-        return history, self.train_df, self.valid_df, prepared_test_df
-
     def predict(
         self,
         user_ids: list[int] | None = None,
@@ -180,28 +180,37 @@ class TwoTower(TwoTowerBase):
 
         return predictions
 
-    def evaluate(self, test_df: pd.DataFrame, top_k: int | None = None) -> dict[str, float]:
+    def evaluate(
+        self,
+        X_test: pd.DataFrame,
+        top_k: int | None = None,
+    ) -> dict[str, float]:
+        """Evaluate the model on interaction pairs.
+
+        `X_test` must contain `user_id` and `banner_id` columns. If a `clicks`
+        column is present, labels are derived from it. If a `label` column is
+        present, it is used directly.
+        """
         self._ensure_fitted()
-        required_columns = {"user_id", "banner_id"}
-        missing_columns = required_columns.difference(test_df.columns)
-        if missing_columns:
-            raise ValueError(f"Test dataframe is missing columns: {sorted(missing_columns)}")
-        test_input_rows = len(test_df)
-        test_unknown_user_rows = int((~test_df["user_id"].isin(self.user_id_to_idx)).sum())
-        test_unknown_item_rows = int((~test_df["banner_id"].isin(self.item_id_to_idx)).sum())
-        prepared_test_df = self._prepare_interactions(test_df, apply_sampling=False)
+        test_input_df = self._prepare_evaluation_inputs(X_test)
+        input_row_count = len(test_input_df)
+        unknown_user_row_count = int((~test_input_df["user_id"].isin(self.user_id_to_idx)).sum())
+        unknown_item_row_count = int((~test_input_df["banner_id"].isin(self.item_id_to_idx)).sum())
+        prepared_test_df = self._prepare_interactions(test_input_df, apply_sampling=False)
         if prepared_test_df.empty:
-            raise RuntimeError("Test split is empty after filtering unknown users/items.")
+            raise RuntimeError(
+                "Evaluation dataset is empty after filtering out unknown users and items."
+            )
 
         metrics = self._evaluate_loader(self._make_loader(prepared_test_df, shuffle=False), prefix="test")
         metrics["recall_at_k"] = self._recall_at_k(prepared_test_df, top_k or self.config.top_k)
-        metrics["test_input_rows"] = float(test_input_rows)
+        metrics["test_input_rows"] = float(input_row_count)
         metrics["test_rows_used"] = float(len(prepared_test_df))
-        metrics["test_rows_filtered"] = float(test_input_rows - len(prepared_test_df))
-        metrics["test_unknown_user_rows"] = float(test_unknown_user_rows)
-        metrics["test_unknown_item_rows"] = float(test_unknown_item_rows)
+        metrics["test_rows_filtered"] = float(input_row_count - len(prepared_test_df))
+        metrics["test_unknown_user_rows"] = float(unknown_user_row_count)
+        metrics["test_unknown_item_rows"] = float(unknown_item_row_count)
         metrics["test_rows_filtered_ratio"] = (
-            float(test_input_rows - len(prepared_test_df)) / max(float(test_input_rows), 1.0)
+            float(input_row_count - len(prepared_test_df)) / max(float(input_row_count), 1.0)
         )
         console.print(metrics)
         return metrics
@@ -251,13 +260,146 @@ class TwoTower(TwoTowerBase):
         interactions_df: pd.DataFrame,
         apply_sampling: bool = False,
     ) -> pd.DataFrame:
-        return prepare_interactions(
-            interactions_df=interactions_df,
-            user_id_to_idx=self.user_id_to_idx,
-            item_id_to_idx=self.item_id_to_idx,
-            max_samples=self.config.max_samples if apply_sampling else None,
-            seed=self.config.seed,
+        normalized_interactions = normalize_interactions(interactions_df)
+        return self._filter_and_sample_interactions(
+            interactions_df=normalized_interactions,
+            apply_sampling=apply_sampling,
+            sort_by_event_date=True,
         )
+
+    def _prepare_evaluation_inputs(self, X_test: pd.DataFrame) -> pd.DataFrame:
+        """Validate and normalize evaluation inputs to interaction format."""
+        if not isinstance(X_test, pd.DataFrame):
+            raise TypeError(
+                "Evaluation features must be a pandas DataFrame with "
+                "'user_id' and 'banner_id' columns."
+            )
+
+        required_columns = {"user_id", "banner_id"}
+        missing_columns = required_columns.difference(X_test.columns)
+        if missing_columns:
+            raise ValueError(
+                f"Evaluation features are missing required columns: {sorted(missing_columns)}"
+            )
+
+        if "label" in X_test.columns:
+            evaluation_df = X_test.copy()
+            evaluation_df["user_id"] = evaluation_df["user_id"].astype(int)
+            evaluation_df["banner_id"] = evaluation_df["banner_id"].astype(int)
+            evaluation_df["label"] = evaluation_df["label"].astype("float32")
+            return evaluation_df
+
+        if "clicks" not in X_test.columns:
+            raise ValueError(
+                "Evaluation features must include either a 'label' column or a 'clicks' column."
+            )
+
+        evaluation_df = X_test.copy()
+        if "event_date" not in evaluation_df.columns:
+            evaluation_df["event_date"] = pd.Timestamp("1970-01-01")
+        return evaluation_df
+
+    def _prepare_fit_inputs(
+        self,
+        *,
+        X_train: pd.DataFrame,
+        y_train: TargetLike,
+        X_valid: pd.DataFrame,
+        y_valid: TargetLike,
+    ) -> tuple[pd.DataFrame, pd.DataFrame]:
+        """Validate fit inputs, build id mappings, and prepare train/valid splits."""
+        train_df = self._build_labeled_interactions(X_train, y_train, split_name="train")
+        valid_df = self._build_labeled_interactions(X_valid, y_valid, split_name="valid")
+        self._fit_id_mappings(train_df)
+
+        prepared_train_df = self._filter_and_sample_interactions(
+            interactions_df=train_df,
+            apply_sampling=True,
+            sort_by_event_date=False,
+        )
+        prepared_valid_df = self._filter_and_sample_interactions(
+            interactions_df=valid_df,
+            apply_sampling=False,
+            sort_by_event_date=False,
+        )
+        return prepared_train_df, prepared_valid_df
+
+    def _build_labeled_interactions(
+        self,
+        X: pd.DataFrame,
+        y: TargetLike,
+        split_name: str,
+    ) -> pd.DataFrame:
+        if not isinstance(X, pd.DataFrame):
+            raise TypeError(
+                f"{split_name} features must be a pandas DataFrame with "
+                "'user_id' and 'banner_id' columns."
+            )
+        required_columns = {"user_id", "banner_id"}
+        missing_columns = required_columns.difference(X.columns)
+        if missing_columns:
+            raise ValueError(
+                f"{split_name} features are missing required columns: {sorted(missing_columns)}"
+            )
+
+        y_series = y if isinstance(y, pd.Series) else pd.Series(y, name="label")
+        if len(X) != len(y_series):
+            raise ValueError(
+                f"{split_name} features and labels must have the same length: "
+                f"{len(X)} != {len(y_series)}"
+            )
+
+        prepared_df = X.loc[:, ["user_id", "banner_id"]].copy()
+        prepared_df["label"] = y_series.to_numpy()
+        return prepared_df.reset_index(drop=True)
+
+    def _filter_and_sample_interactions(
+        self,
+        interactions_df: pd.DataFrame,
+        apply_sampling: bool = False,
+        sort_by_event_date: bool = False,
+    ) -> pd.DataFrame:
+        required_columns = {"user_id", "banner_id", "label"}
+        missing_columns = required_columns.difference(interactions_df.columns)
+        if missing_columns:
+            raise ValueError(
+                f"Prepared interactions dataframe is missing columns: {sorted(missing_columns)}"
+            )
+
+        selected_columns = ["user_id", "banner_id", "label"]
+        if "event_date" in interactions_df.columns:
+            selected_columns.append("event_date")
+
+        interactions = interactions_df.loc[:, selected_columns].copy()
+        interactions["user_id"] = interactions["user_id"].astype(int)
+        interactions["banner_id"] = interactions["banner_id"].astype(int)
+        interactions["label"] = interactions["label"].astype("float32")
+        interactions = interactions[
+            interactions["user_id"].isin(self.user_id_to_idx)
+            & interactions["banner_id"].isin(self.item_id_to_idx)
+        ]
+
+        if apply_sampling and self.config.max_samples and len(interactions) > self.config.max_samples:
+            positives = interactions[interactions["label"] == 1.0]
+            negatives = interactions[interactions["label"] == 0.0]
+            positive_target = min(len(positives), self.config.max_samples // 2)
+            negative_target = min(len(negatives), self.config.max_samples - positive_target)
+
+            sampled_frames = []
+            if positive_target:
+                sampled_frames.append(
+                    positives.sample(n=positive_target, random_state=self.config.seed, replace=False)
+                )
+            if negative_target:
+                sampled_frames.append(
+                    negatives.sample(n=negative_target, random_state=self.config.seed, replace=False)
+                )
+            interactions = pd.concat(sampled_frames, ignore_index=True)
+
+        if sort_by_event_date and "event_date" in interactions.columns:
+            interactions = interactions.sort_values("event_date")
+
+        return interactions.reset_index(drop=True)
 
     def _make_loader(self, dataframe: pd.DataFrame, shuffle: bool) -> DataLoader:
         user_tensor = torch.tensor(
