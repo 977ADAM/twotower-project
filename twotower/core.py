@@ -14,7 +14,7 @@ from torch.utils.data import DataLoader, TensorDataset
 
 from twotower.config import TwoTowerConfig
 from twotower.data import normalize_interactions
-from twotower.fit import FitInputs, TwoTowerTrainer
+from twotower.fit import FitInputs, TwoTowerTrainer, compute_in_batch_retrieval_loss
 from twotower.modules import TwoTowerBase
 
 console = Console()
@@ -54,14 +54,14 @@ class TwoTower(TwoTowerBase):
         `X_train` and `X_valid` must contain `user_id` and `banner_id` columns.
         `y_train` and `y_valid` must contain the corresponding binary labels.
         """
-        prepared_train_df, prepared_valid_df, reference_train_df = self._prepare_fit_inputs(
+        prepared_train_df, prepared_valid_df, reference_train_df, reference_valid_df = self._prepare_fit_inputs(
             X_train=X_train,
             y_train=y_train,
             X_valid=X_valid,
             y_valid=y_valid,
         )
         self.train_df = reference_train_df
-        self.valid_df = prepared_valid_df
+        self.valid_df = reference_valid_df
         self._refresh_evaluation_reference_data()
 
         self._invalidate_item_embedding_cache()
@@ -150,7 +150,12 @@ class TwoTower(TwoTowerBase):
                 "Evaluation dataset is empty after filtering out unknown users and items."
             )
 
-        metrics = self._evaluate_loader(self._make_loader(prepared_test_df, shuffle=False), prefix="test")
+        positive_test_df = self._prepare_retrieval_pairs(
+            prepared_test_df,
+            apply_sampling=False,
+            split_name="test",
+        )
+        metrics = self._evaluate_loader(self._make_loader(positive_test_df, shuffle=False), prefix="test")
         eval_top_ks = self._resolve_eval_top_ks(top_k)
         for eval_top_k in eval_top_ks:
             metrics[f"recall_at_{eval_top_k}"] = self._recall_at_k(prepared_test_df, eval_top_k)
@@ -167,6 +172,7 @@ class TwoTower(TwoTowerBase):
         metrics["test_unknown_user_rows"] = float(unknown_user_row_count)
         metrics["test_unknown_item_rows"] = float(unknown_item_row_count)
         metrics["test_positive_rate"] = float(prepared_test_df["label"].mean())
+        metrics["test_positive_pairs_used_for_loss"] = float(len(positive_test_df))
         metrics["test_eval_user_count"] = float(len(self._get_eval_user_ids(prepared_test_df)))
         metrics["test_rows_filtered_ratio"] = (
             float(input_row_count - len(prepared_test_df)) / max(float(input_row_count), 1.0)
@@ -350,28 +356,57 @@ class TwoTower(TwoTowerBase):
         y_train: TargetLike,
         X_valid: pd.DataFrame,
         y_valid: TargetLike,
-    ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         """Validate fit inputs, build id mappings, and prepare train/valid splits."""
         train_df = self._build_labeled_interactions(X_train, y_train, split_name="train")
         valid_df = self._build_labeled_interactions(X_valid, y_valid, split_name="valid")
         self._fit_id_mappings(train_df)
 
-        prepared_train_df = self._filter_and_sample_interactions(
-            interactions_df=train_df,
+        prepared_train_df = self._prepare_retrieval_pairs(
+            train_df,
             apply_sampling=True,
-            sort_by_event_date=False,
+            split_name="train",
         )
-        prepared_valid_df = self._filter_and_sample_interactions(
-            interactions_df=valid_df,
+        prepared_valid_df = self._prepare_retrieval_pairs(
+            valid_df,
             apply_sampling=False,
-            sort_by_event_date=False,
+            split_name="valid",
         )
         reference_train_df = self._filter_and_sample_interactions(
             interactions_df=train_df,
             apply_sampling=False,
             sort_by_event_date=False,
         )
-        return prepared_train_df, prepared_valid_df, reference_train_df
+        reference_valid_df = self._filter_and_sample_interactions(
+            interactions_df=valid_df,
+            apply_sampling=False,
+            sort_by_event_date=False,
+        )
+        return prepared_train_df, prepared_valid_df, reference_train_df, reference_valid_df
+
+    def _prepare_retrieval_pairs(
+        self,
+        interactions_df: pd.DataFrame,
+        apply_sampling: bool,
+        split_name: str,
+    ) -> pd.DataFrame:
+        filtered_interactions = self._filter_and_sample_interactions(
+            interactions_df=interactions_df,
+            apply_sampling=False,
+            sort_by_event_date=False,
+        )
+        positive_interactions = filtered_interactions[filtered_interactions["label"] == 1.0].copy()
+        if positive_interactions.empty:
+            raise ValueError(f"{split_name} split has no positive interactions for retrieval training.")
+
+        if apply_sampling and self.config.max_samples and len(positive_interactions) > self.config.max_samples:
+            positive_interactions = positive_interactions.sample(
+                n=self.config.max_samples,
+                random_state=self.config.seed,
+                replace=False,
+            )
+
+        return positive_interactions.reset_index(drop=True)
 
     def _build_labeled_interactions(
         self,
@@ -459,39 +494,33 @@ class TwoTower(TwoTowerBase):
             dataframe["banner_id"].map(self.item_id_to_idx).to_numpy(),
             dtype=torch.long,
         )
-        label_tensor = torch.tensor(
-            dataframe["label"].to_numpy(),
-            dtype=torch.float32,
-        )
-        dataset = TensorDataset(user_tensor, item_tensor, label_tensor)
+        dataset = TensorDataset(user_tensor, item_tensor)
         return DataLoader(dataset, batch_size=self.config.batch_size, shuffle=shuffle)
 
     def _evaluate_loader(self, loader: DataLoader, prefix: str = "valid") -> dict[str, float]:
         self.eval()
-        criterion = nn.BCEWithLogitsLoss()
+        criterion = nn.CrossEntropyLoss()
         loss_sum = 0.0
-        correct = 0
         total = 0
 
         with torch.no_grad():
-            for user_batch, item_batch, label_batch in loader:
+            for user_batch, item_batch in loader:
                 user_batch = user_batch.to(self.device)
                 item_batch = item_batch.to(self.device)
-                label_batch = label_batch.to(self.device)
 
-                logits = self.score_pairs(user_batch, item_batch)
-                loss = criterion(logits, label_batch)
-                probs = torch.sigmoid(logits)
-                predictions = (probs >= 0.5).float()
+                logits = self.retrieval_logits(user_batch, item_batch)
+                loss = compute_in_batch_retrieval_loss(
+                    logits=logits,
+                    criterion=criterion,
+                    symmetric=self.config.symmetric_retrieval_loss,
+                )
 
-                batch_size = label_batch.size(0)
+                batch_size = user_batch.size(0)
                 loss_sum += loss.item() * batch_size
-                correct += (predictions == label_batch).sum().item()
                 total += batch_size
 
         return {
             f"{prefix}_loss": loss_sum / max(total, 1),
-            f"{prefix}_accuracy": correct / max(total, 1),
         }
 
     def _resolve_eval_top_ks(self, top_k: int | None) -> list[int]:

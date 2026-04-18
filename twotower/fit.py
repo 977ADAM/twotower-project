@@ -14,6 +14,19 @@ from twotower.config import TwoTowerConfig
 console = Console()
 
 
+def compute_in_batch_retrieval_loss(
+    logits: torch.Tensor,
+    criterion: nn.Module,
+    symmetric: bool,
+) -> torch.Tensor:
+    """Compute a contrastive in-batch softmax loss for retrieval."""
+    targets = torch.arange(logits.size(0), device=logits.device)
+    loss = criterion(logits, targets)
+    if symmetric:
+        loss = 0.5 * (loss + criterion(logits.T, targets))
+    return loss
+
+
 @dataclass(slots=True)
 class FitInputs:
     """Prepared train/validation data for the training loop."""
@@ -62,6 +75,13 @@ class TrainableTwoTower(Protocol):
         ...
 
     def score_pairs(
+        self,
+        user_input: torch.Tensor,
+        item_input: torch.Tensor,
+    ) -> torch.Tensor:
+        ...
+
+    def retrieval_logits(
         self,
         user_input: torch.Tensor,
         item_input: torch.Tensor,
@@ -120,8 +140,8 @@ class TwoTowerTrainer:
         return torch.optim.Adam(model.parameters(), lr=self.config.learning_rate)
 
     def build_loss(self) -> nn.Module:
-        """Create the training loss."""
-        return nn.BCEWithLogitsLoss()
+        """Create the retrieval loss."""
+        return nn.CrossEntropyLoss()
 
     def build_train_loader(
         self,
@@ -163,18 +183,21 @@ class TwoTowerTrainer:
         loss_sum = 0.0
         total_examples = 0
 
-        for user_batch, item_batch, label_batch in train_loader:
+        for user_batch, item_batch in train_loader:
             user_batch = user_batch.to(self.device)
             item_batch = item_batch.to(self.device)
-            label_batch = label_batch.to(self.device)
 
             optimizer.zero_grad()
-            logits = model.score_pairs(user_batch, item_batch)
-            loss = criterion(logits, label_batch)
+            logits = model.retrieval_logits(user_batch, item_batch)
+            loss = compute_in_batch_retrieval_loss(
+                logits=logits,
+                criterion=criterion,
+                symmetric=self.config.symmetric_retrieval_loss,
+            )
             loss.backward()
             optimizer.step()
 
-            batch_size = label_batch.size(0)
+            batch_size = user_batch.size(0)
             loss_sum += loss.item() * batch_size
             total_examples += batch_size
 
@@ -191,28 +214,26 @@ class TwoTowerTrainer:
         """Run validation and return validation metrics."""
         model.eval()
         loss_sum = 0.0
-        correct_predictions = 0
         total_examples = 0
 
         with torch.no_grad():
-            for user_batch, item_batch, label_batch in valid_loader:
+            for user_batch, item_batch in valid_loader:
                 user_batch = user_batch.to(self.device)
                 item_batch = item_batch.to(self.device)
-                label_batch = label_batch.to(self.device)
 
-                logits = model.score_pairs(user_batch, item_batch)
-                loss = criterion(logits, label_batch)
-                probabilities = torch.sigmoid(logits)
-                predictions = (probabilities >= 0.5).float()
+                logits = model.retrieval_logits(user_batch, item_batch)
+                loss = compute_in_batch_retrieval_loss(
+                    logits=logits,
+                    criterion=criterion,
+                    symmetric=self.config.symmetric_retrieval_loss,
+                )
 
-                batch_size = label_batch.size(0)
+                batch_size = user_batch.size(0)
                 loss_sum += loss.item() * batch_size
-                correct_predictions += (predictions == label_batch).sum().item()
                 total_examples += batch_size
 
         return {
             "valid_loss": loss_sum / max(total_examples, 1),
-            "valid_accuracy": correct_predictions / max(total_examples, 1),
         }
 
     def merge_epoch_metrics(
@@ -246,9 +267,5 @@ class TwoTowerTrainer:
             dataframe["banner_id"].map(item_id_to_idx).to_numpy(),
             dtype=torch.long,
         )
-        label_tensor = torch.tensor(
-            dataframe["label"].to_numpy(),
-            dtype=torch.float32,
-        )
-        dataset = TensorDataset(user_tensor, item_tensor, label_tensor)
+        dataset = TensorDataset(user_tensor, item_tensor)
         return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle)

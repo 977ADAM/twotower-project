@@ -35,6 +35,16 @@ class TwoTowerBase(nn.Module):
         item_embedding = self.item_tower(item_input)
         return user_embedding, item_embedding
 
+    def retrieval_logits(
+        self,
+        user_input: torch.Tensor,
+        item_input: torch.Tensor,
+    ) -> torch.Tensor:
+        user_embedding, item_embedding = self.forward(user_input, item_input)
+        user_embedding = F.normalize(user_embedding, dim=-1)
+        item_embedding = F.normalize(item_embedding, dim=-1)
+        return torch.matmul(user_embedding, item_embedding.T) / self.config.retrieval_temperature
+
     def score_pairs(self, user_input: torch.Tensor, item_input: torch.Tensor) -> torch.Tensor:
         user_embedding, item_embedding = self.forward(user_input, item_input)
         user_embedding = F.normalize(user_embedding, dim=-1)
