@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict
+from os import PathLike
 from pathlib import Path
 from typing import Sequence, TypeAlias
 
@@ -139,27 +140,31 @@ class TwoTower(TwoTowerBase):
 
     def predict(
         self,
-        user_ids: list[int] | None = None,
-        item_ids: list[int] | None = None,
+        user_ids: Sequence[int] | None = None,
+        item_ids: Sequence[int] | None = None,
         top_k: int | None = None,
     ) -> dict[int, list[dict[str, float]]]:
+        """Return top-k item recommendations for the requested users.
+
+        If `user_ids` is omitted, predictions are generated for up to 10 known
+        users. If `item_ids` is omitted, all known items are used as candidates.
+        """
         self._ensure_fitted()
         self.eval()
 
-        top_k = top_k or self.config.top_k
-        user_ids = user_ids or self.idx_to_user_id[: min(10, len(self.idx_to_user_id))]
-        candidate_items = item_ids or self.idx_to_item_id
-        available_items = [
-            item_id for item_id in candidate_items if item_id in self.item_id_to_idx
-        ]
-        if not available_items:
+        resolved_user_ids, candidate_item_ids, resolved_top_k = self._prepare_prediction_inputs(
+            user_ids=user_ids,
+            item_ids=item_ids,
+            top_k=top_k,
+        )
+        if not candidate_item_ids:
             return {}
 
-        item_embeddings, item_ids = self._get_item_embeddings_for_candidates(available_items)
+        item_embeddings, candidate_item_ids = self._get_item_embeddings_for_candidates(candidate_item_ids)
 
         with torch.no_grad():
             predictions: dict[int, list[dict[str, float]]] = {}
-            for user_id in user_ids:
+            for user_id in resolved_user_ids:
                 if user_id not in self.user_id_to_idx:
                     continue
 
@@ -167,12 +172,12 @@ class TwoTower(TwoTowerBase):
                 user_embedding = self.user_tower(user_index)
                 user_embedding = F.normalize(user_embedding, dim=-1)
                 scores = torch.matmul(item_embeddings, user_embedding.squeeze(0))
-                k = min(top_k, scores.size(0))
+                k = min(resolved_top_k, scores.size(0))
                 top_scores, top_indices = torch.topk(scores, k=k)
 
                 predictions[user_id] = [
                     {
-                        "banner_id": int(item_ids[item_tensor_idx]),
+                        "banner_id": int(candidate_item_ids[item_tensor_idx]),
                         "score": float(score),
                     }
                     for score, item_tensor_idx in zip(top_scores.cpu().tolist(), top_indices.cpu().tolist())
@@ -215,9 +220,10 @@ class TwoTower(TwoTowerBase):
         console.print(metrics)
         return metrics
 
-    def save_model(self, path: str) -> None:
+    def save_model(self, path: str | PathLike[str]) -> None:
+        """Save the fitted model checkpoint to disk."""
         self._ensure_fitted()
-        target_path = Path(path)
+        target_path = self._resolve_checkpoint_path(path)
         target_path.parent.mkdir(parents=True, exist_ok=True)
 
         checkpoint = {
@@ -232,8 +238,14 @@ class TwoTower(TwoTowerBase):
         torch.save(checkpoint, target_path)
         console.print(f"Model saved to {target_path}")
 
-    def load_model(self, path: str) -> "TwoTower":
-        checkpoint = torch.load(path, map_location="cpu")
+    def load_model(self, path: str | PathLike[str]) -> "TwoTower":
+        """Load a model checkpoint from disk and return `self`."""
+        checkpoint_path = self._resolve_checkpoint_path(path)
+        if not checkpoint_path.exists():
+            raise FileNotFoundError(f"Model checkpoint was not found: {checkpoint_path}")
+
+        checkpoint = torch.load(checkpoint_path, map_location="cpu")
+        self._validate_checkpoint(checkpoint, checkpoint_path)
         self.config = TwoTowerConfig(**checkpoint["config"])
         self.device = self._resolve_device(self.config.device)
         self.user_id_to_idx = checkpoint["user_id_to_idx"]
@@ -248,6 +260,32 @@ class TwoTower(TwoTowerBase):
         self._invalidate_item_embedding_cache()
         self.eval()
         return self
+
+    def _resolve_checkpoint_path(self, path: str | PathLike[str]) -> Path:
+        """Normalize a checkpoint path."""
+        checkpoint_path = Path(path)
+        if not checkpoint_path.name:
+            raise ValueError("Checkpoint path must point to a file.")
+        return checkpoint_path
+
+    def _validate_checkpoint(self, checkpoint: object, checkpoint_path: Path) -> None:
+        """Validate checkpoint structure before loading model state."""
+        if not isinstance(checkpoint, dict):
+            raise ValueError(f"Invalid checkpoint format in {checkpoint_path}: expected a dictionary.")
+
+        required_keys = {
+            "config",
+            "state_dict",
+            "user_id_to_idx",
+            "item_id_to_idx",
+            "idx_to_user_id",
+            "idx_to_item_id",
+        }
+        missing_keys = required_keys.difference(checkpoint)
+        if missing_keys:
+            raise ValueError(
+                f"Invalid checkpoint format in {checkpoint_path}: missing keys {sorted(missing_keys)}."
+            )
 
     def _fit_id_mappings(self, train_df: pd.DataFrame) -> None:
         self.idx_to_user_id = train_df["user_id"].astype(int).drop_duplicates().sort_values().tolist()
@@ -298,6 +336,29 @@ class TwoTower(TwoTowerBase):
         if "event_date" not in evaluation_df.columns:
             evaluation_df["event_date"] = pd.Timestamp("1970-01-01")
         return evaluation_df
+
+    def _prepare_prediction_inputs(
+        self,
+        user_ids: Sequence[int] | None,
+        item_ids: Sequence[int] | None,
+        top_k: int | None,
+    ) -> tuple[list[int], list[int], int]:
+        """Validate and normalize prediction inputs."""
+        resolved_top_k = top_k or self.config.top_k
+        if resolved_top_k <= 0:
+            raise ValueError("`top_k` must be a positive integer.")
+
+        resolved_user_ids = (
+            list(user_ids)
+            if user_ids is not None
+            else self.idx_to_user_id[: min(10, len(self.idx_to_user_id))]
+        )
+        resolved_item_ids = list(item_ids) if item_ids is not None else list(self.idx_to_item_id)
+
+        available_item_ids = [
+            int(item_id) for item_id in resolved_item_ids if int(item_id) in self.item_id_to_idx
+        ]
+        return [int(user_id) for user_id in resolved_user_ids], available_item_ids, int(resolved_top_k)
 
     def _prepare_fit_inputs(
         self,
