@@ -72,22 +72,21 @@ class TwoTower(TwoTowerBase):
         self.idx_to_item_id: list[int] = []
         self.train_history: list[dict[str, float]] = []
         self.train_df: pd.DataFrame | None = None
-        self.val_df: pd.DataFrame | None = None
+        self.valid_df: pd.DataFrame | None = None
 
     def fit(
         self,
-        users_df: pd.DataFrame,
-        items_df: pd.DataFrame,
-        interactions_df: pd.DataFrame,
+        train_df: pd.DataFrame,
+        valid_df: pd.DataFrame,
     ) -> list[dict[str, float]]:
-        self._fit_id_mappings(users_df, items_df)
-        interactions = self._prepare_interactions(interactions_df)
-        self.train_df, self.val_df = self._split_interactions(interactions)
+        self._fit_id_mappings(train_df, valid_df)
+        self.train_df = self._prepare_interactions(train_df)
+        self.valid_df = self._prepare_interactions(valid_df)
         self.build_towers(len(self.idx_to_user_id), len(self.idx_to_item_id))
         self.to(self.device)
 
         train_loader = self._make_loader(self.train_df, shuffle=True)
-        val_loader = self._make_loader(self.val_df, shuffle=False)
+        valid_loader = self._make_loader(self.valid_df, shuffle=False)
         optimizer = torch.optim.Adam(self.parameters(), lr=self.config.learning_rate)
         criterion = nn.BCEWithLogitsLoss()
 
@@ -112,7 +111,7 @@ class TwoTower(TwoTowerBase):
                 train_loss_sum += loss.item() * batch_size
                 train_examples += batch_size
 
-            metrics = self._evaluate_loader(val_loader)
+            metrics = self._evaluate_loader(valid_loader)
             metrics["epoch"] = float(epoch)
             metrics["train_loss"] = train_loss_sum / max(train_examples, 1)
             self.train_history.append(metrics)
@@ -120,8 +119,8 @@ class TwoTower(TwoTowerBase):
             console.print(
                 f"Epoch {epoch}/{self.config.epochs} "
                 f"train_loss={metrics['train_loss']:.4f} "
-                f"val_loss={metrics['val_loss']:.4f} "
-                f"val_accuracy={metrics['val_accuracy']:.4f}"
+                f"valid_loss={metrics['valid_loss']:.4f} "
+                f"valid_accuracy={metrics['valid_accuracy']:.4f}"
             )
 
         return self.train_history
@@ -173,13 +172,14 @@ class TwoTower(TwoTowerBase):
 
         return predictions
 
-    def evaluate(self, top_k: int | None = None) -> dict[str, float]:
+    def evaluate(self, test_df: pd.DataFrame, top_k: int | None = None) -> dict[str, float]:
         self._ensure_fitted()
-        if self.val_df is None or self.val_df.empty:
-            raise RuntimeError("Validation split is empty. Fit the model before evaluation.")
+        prepared_test_df = self._prepare_interactions(test_df)
+        if prepared_test_df.empty:
+            raise RuntimeError("Test split is empty after filtering unknown users/items.")
 
-        metrics = self._evaluate_loader(self._make_loader(self.val_df, shuffle=False))
-        metrics["recall_at_k"] = self._recall_at_k(top_k or self.config.top_k)
+        metrics = self._evaluate_loader(self._make_loader(prepared_test_df, shuffle=False), prefix="test")
+        metrics["recall_at_k"] = self._recall_at_k(prepared_test_df, top_k or self.config.top_k)
         console.print(metrics)
         return metrics
 
@@ -216,9 +216,10 @@ class TwoTower(TwoTowerBase):
         self.eval()
         return self
 
-    def _fit_id_mappings(self, users_df: pd.DataFrame, items_df: pd.DataFrame) -> None:
-        self.idx_to_user_id = users_df["user_id"].astype(int).drop_duplicates().sort_values().tolist()
-        self.idx_to_item_id = items_df["banner_id"].astype(int).drop_duplicates().sort_values().tolist()
+    def _fit_id_mappings(self, train_df: pd.DataFrame, valid_df: pd.DataFrame) -> None:
+        interactions = pd.concat([train_df, valid_df], ignore_index=True)
+        self.idx_to_user_id = interactions["user_id"].astype(int).drop_duplicates().sort_values().tolist()
+        self.idx_to_item_id = interactions["banner_id"].astype(int).drop_duplicates().sort_values().tolist()
         self.user_id_to_idx = {user_id: idx for idx, user_id in enumerate(self.idx_to_user_id)}
         self.item_id_to_idx = {item_id: idx for idx, item_id in enumerate(self.idx_to_item_id)}
 
@@ -257,13 +258,6 @@ class TwoTower(TwoTowerBase):
 
         return interactions.sort_values("event_date").reset_index(drop=True)
 
-    def _split_interactions(self, interactions_df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
-        split_index = int(len(interactions_df) * (1 - self.config.validation_ratio))
-        split_index = min(max(split_index, 1), len(interactions_df) - 1)
-        train_df = interactions_df.iloc[:split_index].copy()
-        val_df = interactions_df.iloc[split_index:].copy()
-        return train_df, val_df
-
     def _make_loader(self, dataframe: pd.DataFrame, shuffle: bool) -> DataLoader:
         user_tensor = torch.tensor(
             dataframe["user_id"].map(self.user_id_to_idx).to_numpy(),
@@ -280,7 +274,7 @@ class TwoTower(TwoTowerBase):
         dataset = TensorDataset(user_tensor, item_tensor, label_tensor)
         return DataLoader(dataset, batch_size=self.config.batch_size, shuffle=shuffle)
 
-    def _evaluate_loader(self, loader: DataLoader) -> dict[str, float]:
+    def _evaluate_loader(self, loader: DataLoader, prefix: str = "valid") -> dict[str, float]:
         self.eval()
         criterion = nn.BCEWithLogitsLoss()
         loss_sum = 0.0
@@ -304,13 +298,12 @@ class TwoTower(TwoTowerBase):
                 total += batch_size
 
         return {
-            "val_loss": loss_sum / max(total, 1),
-            "val_accuracy": correct / max(total, 1),
+            f"{prefix}_loss": loss_sum / max(total, 1),
+            f"{prefix}_accuracy": correct / max(total, 1),
         }
 
-    def _recall_at_k(self, top_k: int) -> float:
-        assert self.val_df is not None
-        positive_df = self.val_df[self.val_df["label"] == 1.0]
+    def _recall_at_k(self, evaluation_df: pd.DataFrame, top_k: int) -> float:
+        positive_df = evaluation_df[evaluation_df["label"] == 1.0]
         if positive_df.empty:
             return 0.0
 
