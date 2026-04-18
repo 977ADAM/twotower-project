@@ -14,6 +14,7 @@ from torch.utils.data import DataLoader, TensorDataset
 
 from twotower.config import TwoTowerConfig
 from twotower.data import normalize_interactions, split_interactions
+from twotower.fit import FitInputs, TwoTowerTrainer
 from twotower.modules.user_tower import UserTower
 from twotower.modules.item_tower import ItemTower
 
@@ -94,48 +95,25 @@ class TwoTower(TwoTowerBase):
             X_valid=X_valid,
             y_valid=y_valid,
         )
-        self.build_towers(len(self.idx_to_user_id), len(self.idx_to_item_id))
-        self.to(self.device)
+
         self._invalidate_item_embedding_cache()
 
-        train_loader = self._make_loader(self.train_df, shuffle=True)
-        valid_loader = self._make_loader(self.valid_df, shuffle=False)
-        optimizer = torch.optim.Adam(self.parameters(), lr=self.config.learning_rate)
-        criterion = nn.BCEWithLogitsLoss()
+        fit_inputs = FitInputs(
+            train_df=self.train_df,
+            valid_df=self.valid_df,
+            num_users=len(self.idx_to_user_id),
+            num_items=len(self.idx_to_item_id),
+        )
+        trainer = TwoTowerTrainer(config=self.config, device=self.device)
 
-        self.train_history = []
-        for epoch in range(1, self.config.epochs + 1):
-            self.train()
-            train_loss_sum = 0.0
-            train_examples = 0
+        fit_result = trainer.fit(self, fit_inputs)
 
-            for user_batch, item_batch, label_batch in train_loader:
-                user_batch = user_batch.to(self.device)
-                item_batch = item_batch.to(self.device)
-                label_batch = label_batch.to(self.device)
+        self.train_df = fit_result.train_df
+        self.valid_df = fit_result.valid_df
+        self.train_history = fit_result.history
 
-                optimizer.zero_grad()
-                logits = self.score_pairs(user_batch, item_batch)
-                loss = criterion(logits, label_batch)
-                loss.backward()
-                optimizer.step()
-
-                batch_size = label_batch.size(0)
-                train_loss_sum += loss.item() * batch_size
-                train_examples += batch_size
-
-            metrics = self._evaluate_loader(valid_loader)
-            metrics["epoch"] = float(epoch)
-            metrics["train_loss"] = train_loss_sum / max(train_examples, 1)
-            self.train_history.append(metrics)
-
-            console.print(
-                f"Epoch {epoch}/{self.config.epochs} "
-                f"train_loss={metrics['train_loss']:.4f} "
-                f"valid_loss={metrics['valid_loss']:.4f} "
-                f"valid_accuracy={metrics['valid_accuracy']:.4f}"
-            )
-
+        self._invalidate_item_embedding_cache()
+        
         return self.train_history
 
     def predict(
