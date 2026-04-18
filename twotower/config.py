@@ -12,6 +12,6 @@ class TwoTowerConfig:
     test_ratio: float = 0.1
     max_samples: int | None = 250_000
     max_eval_users: int = 500
-    top_k: int = 10
+    top_k: int = 100
     seed: int = 42
     device: str | None = "cpu"

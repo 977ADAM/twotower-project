@@ -4,7 +4,6 @@ from src.data import fit_id_mappings, load_data, prepare_interactions, split_int
 from src.сonfig import Config
 from twotower import TwoTower
 
-
 console = Console()
 
 
