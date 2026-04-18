@@ -20,7 +20,7 @@ from twotower.features import (
     build_item_feature_tables,
     build_user_feature_tables,
 )
-from twotower.fit import FitInputs, TwoTowerTrainer, compute_in_batch_retrieval_loss
+from twotower.fit import FitInputs, TwoTowerTrainer, build_pairwise_loader, compute_bpr_loss
 from twotower.modules import TwoTowerBase
 
 console = Console()
@@ -80,8 +80,10 @@ class TwoTower(TwoTowerBase):
         self._invalidate_item_embedding_cache()
 
         fit_inputs = FitInputs(
-            train_df=prepared_train_df,
-            valid_df=prepared_valid_df,
+            train_positive_df=prepared_train_df,
+            valid_positive_df=prepared_valid_df,
+            train_interactions_df=reference_train_df,
+            valid_interactions_df=reference_valid_df,
             num_users=len(self.idx_to_user_id),
             num_items=len(self.idx_to_item_id),
         )
@@ -168,7 +170,14 @@ class TwoTower(TwoTowerBase):
             apply_sampling=False,
             split_name="test",
         )
-        metrics = self._evaluate_loader(self._make_loader(positive_test_df, shuffle=False), prefix="test")
+        metrics = self._evaluate_loader(
+            self._make_loader(
+                positive_df=positive_test_df,
+                interactions_df=prepared_test_df,
+                shuffle=False,
+            ),
+            prefix="test",
+        )
         eval_top_ks = self._resolve_eval_top_ks(top_k)
         for eval_top_k in eval_top_ks:
             metrics[f"recall_at_{eval_top_k}"] = self._recall_at_k(prepared_test_df, eval_top_k)
@@ -531,34 +540,43 @@ class TwoTower(TwoTowerBase):
 
         return interactions.reset_index(drop=True)
 
-    def _make_loader(self, dataframe: pd.DataFrame, shuffle: bool) -> DataLoader:
-        user_tensor = torch.tensor(
-            dataframe["user_id"].map(self.user_id_to_idx).to_numpy(),
-            dtype=torch.long,
+    def _make_loader(
+        self,
+        *,
+        positive_df: pd.DataFrame,
+        interactions_df: pd.DataFrame,
+        shuffle: bool,
+    ) -> DataLoader:
+        return build_pairwise_loader(
+            positive_df=positive_df,
+            interactions_df=interactions_df,
+            user_id_to_idx=self.user_id_to_idx,
+            item_id_to_idx=self.item_id_to_idx,
+            num_items=len(self.idx_to_item_id),
+            batch_size=self.config.batch_size,
+            shuffle=shuffle,
+            observed_negative_sampling_ratio=self.config.observed_negative_sampling_ratio,
+            seed=self.config.seed + 2,
         )
-        item_tensor = torch.tensor(
-            dataframe["banner_id"].map(self.item_id_to_idx).to_numpy(),
-            dtype=torch.long,
-        )
-        dataset = TensorDataset(user_tensor, item_tensor)
-        return DataLoader(dataset, batch_size=self.config.batch_size, shuffle=shuffle)
 
     def _evaluate_loader(self, loader: DataLoader, prefix: str = "valid") -> dict[str, float]:
         self.eval()
-        criterion = nn.CrossEntropyLoss()
+        criterion = nn.LogSigmoid()
         loss_sum = 0.0
         total = 0
 
         with torch.no_grad():
-            for user_batch, item_batch in loader:
+            for user_batch, pos_item_batch, neg_item_batch in loader:
                 user_batch = user_batch.to(self.device)
-                item_batch = item_batch.to(self.device)
+                pos_item_batch = pos_item_batch.to(self.device)
+                neg_item_batch = neg_item_batch.to(self.device)
 
-                logits = self.retrieval_logits(user_batch, item_batch)
-                loss = compute_in_batch_retrieval_loss(
-                    logits=logits,
+                positive_scores = self.score_pairs(user_batch, pos_item_batch)
+                negative_scores = self.score_pairs(user_batch, neg_item_batch)
+                loss = compute_bpr_loss(
+                    positive_scores=positive_scores,
+                    negative_scores=negative_scores,
                     criterion=criterion,
-                    symmetric=self.config.symmetric_retrieval_loss,
                 )
 
                 batch_size = user_batch.size(0)

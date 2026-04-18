@@ -8,6 +8,7 @@ class TwoTowerConfig:
     hidden_dim: int = 64
     retrieval_temperature: float = 0.1
     symmetric_retrieval_loss: bool = True
+    observed_negative_sampling_ratio: float = 0.8
     learning_rate: float = 1e-3
     batch_size: int = 2048
     epochs: int = 10

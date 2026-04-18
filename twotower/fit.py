@@ -1,17 +1,27 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import random
 from typing import Protocol
 
 import pandas as pd
 import torch
 import torch.nn as nn
 from rich.console import Console
-from torch.utils.data import DataLoader, TensorDataset
+from torch.utils.data import DataLoader, Dataset
 
 from twotower.config import TwoTowerConfig
 
 console = Console()
+
+
+def compute_bpr_loss(
+    positive_scores: torch.Tensor,
+    negative_scores: torch.Tensor,
+    criterion: nn.Module,
+) -> torch.Tensor:
+    """Compute a pairwise Bayesian Personalized Ranking loss."""
+    return -criterion(positive_scores - negative_scores).mean()
 
 
 def compute_in_batch_retrieval_loss(
@@ -31,8 +41,10 @@ def compute_in_batch_retrieval_loss(
 class FitInputs:
     """Prepared train/validation data for the training loop."""
 
-    train_df: pd.DataFrame
-    valid_df: pd.DataFrame
+    train_positive_df: pd.DataFrame
+    valid_positive_df: pd.DataFrame
+    train_interactions_df: pd.DataFrame
+    valid_interactions_df: pd.DataFrame
     num_users: int
     num_items: int
 
@@ -50,6 +62,131 @@ class FitResult:
     """Artifacts returned by the trainer after fitting."""
 
     history: list[dict[str, float]]
+
+
+class PairwiseInteractionsDataset(Dataset[tuple[torch.Tensor, torch.Tensor, torch.Tensor]]):
+    """Yield (user, positive item, negative item) triples for BPR training."""
+
+    def __init__(
+        self,
+        *,
+        positive_df: pd.DataFrame,
+        interactions_df: pd.DataFrame,
+        user_id_to_idx: dict[int, int],
+        item_id_to_idx: dict[int, int],
+        num_items: int,
+        observed_negative_sampling_ratio: float,
+        seed: int,
+    ):
+        if not 0.0 <= observed_negative_sampling_ratio <= 1.0:
+            raise ValueError("`observed_negative_sampling_ratio` must be in [0, 1].")
+
+        self.user_tensor = torch.tensor(
+            positive_df["user_id"].map(user_id_to_idx).to_numpy(),
+            dtype=torch.long,
+        )
+        self.pos_item_tensor = torch.tensor(
+            positive_df["banner_id"].map(item_id_to_idx).to_numpy(),
+            dtype=torch.long,
+        )
+        self.num_items = int(num_items)
+        self.observed_negative_sampling_ratio = observed_negative_sampling_ratio
+        self.random = random.Random(seed)
+        self.observed_negative_items_by_user = self._build_item_pools_by_user(
+            interactions_df=interactions_df,
+            target_label=0.0,
+            user_id_to_idx=user_id_to_idx,
+            item_id_to_idx=item_id_to_idx,
+            deduplicate=False,
+        )
+        positive_item_lists = self._build_item_pools_by_user(
+            interactions_df=interactions_df,
+            target_label=1.0,
+            user_id_to_idx=user_id_to_idx,
+            item_id_to_idx=item_id_to_idx,
+            deduplicate=True,
+        )
+        self.positive_items_by_user = {
+            user_idx: set(item_indices)
+            for user_idx, item_indices in positive_item_lists.items()
+        }
+
+    def __len__(self) -> int:
+        return int(self.user_tensor.size(0))
+
+    def __getitem__(self, index: int) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        user_idx = int(self.user_tensor[index].item())
+        negative_item_idx = self._sample_negative_item(user_idx)
+        return (
+            self.user_tensor[index],
+            self.pos_item_tensor[index],
+            torch.tensor(negative_item_idx, dtype=torch.long),
+        )
+
+    def _sample_negative_item(self, user_idx: int) -> int:
+        observed_negatives = self.observed_negative_items_by_user.get(user_idx, [])
+        if observed_negatives and self.random.random() < self.observed_negative_sampling_ratio:
+            return int(observed_negatives[self.random.randrange(len(observed_negatives))])
+
+        positive_items = self.positive_items_by_user.get(user_idx, set())
+        if len(positive_items) >= self.num_items:
+            if observed_negatives:
+                return int(observed_negatives[self.random.randrange(len(observed_negatives))])
+            return 0
+
+        while True:
+            candidate_item_idx = self.random.randrange(self.num_items)
+            if candidate_item_idx not in positive_items:
+                return int(candidate_item_idx)
+
+    @staticmethod
+    def _build_item_pools_by_user(
+        *,
+        interactions_df: pd.DataFrame,
+        target_label: float,
+        user_id_to_idx: dict[int, int],
+        item_id_to_idx: dict[int, int],
+        deduplicate: bool,
+    ) -> dict[int, list[int]]:
+        filtered_df = interactions_df[interactions_df["label"] == target_label]
+        pools: dict[int, list[int]] = {}
+        for user_id, item_series in filtered_df.groupby("user_id")["banner_id"]:
+            if int(user_id) not in user_id_to_idx:
+                continue
+
+            mapped_items = [
+                int(item_id_to_idx[int(item_id)])
+                for item_id in item_series.astype(int).tolist()
+                if int(item_id) in item_id_to_idx
+            ]
+            if deduplicate:
+                mapped_items = list(dict.fromkeys(mapped_items))
+            pools[int(user_id_to_idx[int(user_id)])] = mapped_items
+        return pools
+
+
+def build_pairwise_loader(
+    *,
+    positive_df: pd.DataFrame,
+    interactions_df: pd.DataFrame,
+    user_id_to_idx: dict[int, int],
+    item_id_to_idx: dict[int, int],
+    num_items: int,
+    batch_size: int,
+    shuffle: bool,
+    observed_negative_sampling_ratio: float,
+    seed: int,
+) -> DataLoader:
+    dataset = PairwiseInteractionsDataset(
+        positive_df=positive_df,
+        interactions_df=interactions_df,
+        user_id_to_idx=user_id_to_idx,
+        item_id_to_idx=item_id_to_idx,
+        num_items=num_items,
+        observed_negative_sampling_ratio=observed_negative_sampling_ratio,
+        seed=seed,
+    )
+    return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle)
 
 
 class TrainableTwoTower(Protocol):
@@ -160,7 +297,7 @@ class TwoTowerTrainer:
 
     def build_loss(self) -> nn.Module:
         """Create the retrieval loss."""
-        return nn.CrossEntropyLoss()
+        return nn.LogSigmoid()
 
     def build_train_loader(
         self,
@@ -168,12 +305,16 @@ class TwoTowerTrainer:
         inputs: FitInputs,
     ) -> DataLoader:
         """Create the training dataloader."""
-        return self._make_loader(
-            dataframe=inputs.train_df,
+        return build_pairwise_loader(
+            positive_df=inputs.train_positive_df,
+            interactions_df=inputs.train_interactions_df,
             user_id_to_idx=model.user_id_to_idx,
             item_id_to_idx=model.item_id_to_idx,
+            num_items=inputs.num_items,
             batch_size=self.config.batch_size,
             shuffle=True,
+            observed_negative_sampling_ratio=self.config.observed_negative_sampling_ratio,
+            seed=self.config.seed,
         )
 
     def build_valid_loader(
@@ -182,12 +323,16 @@ class TwoTowerTrainer:
         inputs: FitInputs,
     ) -> DataLoader:
         """Create the validation dataloader."""
-        return self._make_loader(
-            dataframe=inputs.valid_df,
+        return build_pairwise_loader(
+            positive_df=inputs.valid_positive_df,
+            interactions_df=inputs.valid_interactions_df,
             user_id_to_idx=model.user_id_to_idx,
             item_id_to_idx=model.item_id_to_idx,
+            num_items=inputs.num_items,
             batch_size=self.config.batch_size,
             shuffle=False,
+            observed_negative_sampling_ratio=self.config.observed_negative_sampling_ratio,
+            seed=self.config.seed + 1,
         )
 
     def train_epoch(
@@ -202,16 +347,18 @@ class TwoTowerTrainer:
         loss_sum = 0.0
         total_examples = 0
 
-        for user_batch, item_batch in train_loader:
+        for user_batch, pos_item_batch, neg_item_batch in train_loader:
             user_batch = user_batch.to(self.device)
-            item_batch = item_batch.to(self.device)
+            pos_item_batch = pos_item_batch.to(self.device)
+            neg_item_batch = neg_item_batch.to(self.device)
 
             optimizer.zero_grad()
-            logits = model.retrieval_logits(user_batch, item_batch)
-            loss = compute_in_batch_retrieval_loss(
-                logits=logits,
+            positive_scores = model.score_pairs(user_batch, pos_item_batch)
+            negative_scores = model.score_pairs(user_batch, neg_item_batch)
+            loss = compute_bpr_loss(
+                positive_scores=positive_scores,
+                negative_scores=negative_scores,
                 criterion=criterion,
-                symmetric=self.config.symmetric_retrieval_loss,
             )
             loss.backward()
             optimizer.step()
@@ -236,15 +383,17 @@ class TwoTowerTrainer:
         total_examples = 0
 
         with torch.no_grad():
-            for user_batch, item_batch in valid_loader:
+            for user_batch, pos_item_batch, neg_item_batch in valid_loader:
                 user_batch = user_batch.to(self.device)
-                item_batch = item_batch.to(self.device)
+                pos_item_batch = pos_item_batch.to(self.device)
+                neg_item_batch = neg_item_batch.to(self.device)
 
-                logits = model.retrieval_logits(user_batch, item_batch)
-                loss = compute_in_batch_retrieval_loss(
-                    logits=logits,
+                positive_scores = model.score_pairs(user_batch, pos_item_batch)
+                negative_scores = model.score_pairs(user_batch, neg_item_batch)
+                loss = compute_bpr_loss(
+                    positive_scores=positive_scores,
+                    negative_scores=negative_scores,
                     criterion=criterion,
-                    symmetric=self.config.symmetric_retrieval_loss,
                 )
 
                 batch_size = user_batch.size(0)
@@ -268,23 +417,3 @@ class TwoTowerTrainer:
             **train_metrics,
             **valid_metrics,
         }
-
-    def _make_loader(
-        self,
-        *,
-        dataframe: pd.DataFrame,
-        user_id_to_idx: dict[int, int],
-        item_id_to_idx: dict[int, int],
-        batch_size: int,
-        shuffle: bool,
-    ) -> DataLoader:
-        user_tensor = torch.tensor(
-            dataframe["user_id"].map(user_id_to_idx).to_numpy(),
-            dtype=torch.long,
-        )
-        item_tensor = torch.tensor(
-            dataframe["banner_id"].map(item_id_to_idx).to_numpy(),
-            dtype=torch.long,
-        )
-        dataset = TensorDataset(user_tensor, item_tensor)
-        return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle)
