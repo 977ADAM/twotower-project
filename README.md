@@ -1,58 +1,232 @@
 # TwoTower Project
 
-Минимальный baseline рекомендательной системы на базе архитектуры `two-tower`, реализованный на PyTorch.
+Небольшой учебный проект рекомендательной системы на PyTorch с архитектурой `two-tower`. Репозиторий собирает данные из CSV, готовит бинарный таргет по кликам, обучает две embedding-башни, считает простые метрики и сохраняет чекпойнт модели.
 
-Проект обучает две отдельные башни:
-- `user tower` строит embedding пользователя
-- `item tower` строит embedding баннера
+README ниже описывает проект в его текущем состоянии, по реальному коду в репозитории.
 
-Сходство между пользователем и баннером считается через скалярное произведение нормализованных embedding-векторов. На выходе модель умеет:
-- обучаться на истории взаимодействий
-- оценивать качество на тесте
-- выдавать `top-k` рекомендаций для пользователей
-- сохранять и загружать обученный чекпойнт
+## Что делает проект
 
-## Что лежит в проекте
+- Загружает пользователей, баннеры и историю взаимодействий из `data/raw/*.csv`.
+- Строит отображения `user_id -> index` и `banner_id -> index`.
+- Формирует бинарную метку `label = 1`, если `clicks > 0`, иначе `0`.
+- Ограничивает обучающую выборку до `250_000` взаимодействий с балансировкой классов.
+- Делит данные по времени на `train/valid/test`.
+- Обучает `TwoTower`-модель на PyTorch.
+- Считает `loss`, `accuracy` и `recall@k`.
+- Показывает пример рекомендаций для нескольких пользователей.
+- Сохраняет модель в `artifacts/twotower_model.pth`.
+
+## Структура репозитория
 
 ```text
 .
-├── main.py                  # точка входа: обучение, оценка, предсказания, сохранение модели
-├── pyproject.toml           # зависимости проекта
-├── src/
-│   └── data.py              # загрузка и подготовка данных
-├── twotower/
-│   ├── __init__.py
-│   ├── config.py            # dataclass-конфиг модели
-│   ├── core.py              # обучение, инференс, метрики, сериализация
-│   ├── user_tower.py        # user tower
-│   └── item_tower.py        # item tower
+├── main.py
+├── pyproject.toml
+├── README.md
+├── artifacts/
+│   └── twotower_model.pth
 ├── data/
 │   └── raw/
 │       ├── users.csv
 │       ├── banners.csv
 │       └── interactions.csv
-└── artifacts/
-    └── twotower_model.pth   # сохраненный чекпойнт модели
+├── src/
+│   ├── data.py
+│   └── сonfig.py
+└── twotower/
+    ├── __init__.py
+    ├── config.py
+    ├── core.py
+    ├── item_tower.py
+    └── user_tower.py
 ```
 
-## Требования
+## Быстрый контекст по файлам
 
-- Python `3.11+`
-- PyTorch
-- pandas
-- rich
+- `main.py` — точка входа: загрузка данных, подготовка, обучение, оценка, предсказания и сохранение модели.
+- `src/data.py` — чтение CSV, подготовка interactions, семплирование и временной сплит.
+- `src/сonfig.py` — конфиг путей к данным и артефактам.
+- `twotower/config.py` — гиперпараметры модели и обучения.
+- `twotower/user_tower.py` — user tower.
+- `twotower/item_tower.py` — item tower.
+- `twotower/core.py` — основной класс `TwoTower`: `fit`, `predict`, `evaluate`, `save_model`, `load_model`.
 
-Зависимости описаны в `pyproject.toml`.
+## Данные
+
+В репозитории есть локальный датасет:
+
+- `data/raw/users.csv` — `5000 x 14`
+- `data/raw/banners.csv` — `3000 x 14`
+- `data/raw/interactions.csv` — `1_499_110 x 6`
+
+Период interactions:
+
+- от `2026-01-01`
+- до `2026-03-31`
+
+### Колонки `users.csv`
+
+`user_id`, `age`, `gender`, `city_tier`, `device_os`, `platform`, `income_band`, `activity_segment`, `interest_1`, `interest_2`, `interest_3`, `country`, `signup_days_ago`, `is_premium`
+
+### Колонки `banners.csv`
+
+`banner_id`, `brand`, `category`, `subcategory`, `banner_format`, `campaign_goal`, `target_gender`, `target_age_min`, `target_age_max`, `cpm_bid`, `quality_score`, `created_at`, `is_active`, `landing_page`
+
+### Колонки `interactions.csv`
+
+`event_date`, `user_id`, `banner_id`, `impressions`, `clicks`, `ctr`
+
+### Как формируется таргет
+
+Из interactions используются поля `event_date`, `user_id`, `banner_id`, `clicks`.
+
+Правило разметки:
+
+```text
+clicks > 0  -> label = 1
+clicks == 0 -> label = 0
+```
+
+После подготовки и ограничения `max_samples=250_000` текущий пайплайн получает:
+
+- `250_000` строк после семплирования
+- `125_000` позитивных примеров
+- `125_000` негативных примеров
+- `175_000` строк в `train`
+- `50_000` строк в `valid`
+- `25_000` строк в `test`
+
+## Архитектура модели
+
+Проект реализует классическую схему `two-tower`, но в очень минимальном виде.
+
+### User tower
+
+```text
+Embedding(user_id) -> Linear -> ReLU -> LayerNorm
+```
+
+### Item tower
+
+```text
+Embedding(banner_id) -> Linear -> ReLU -> LayerNorm
+```
+
+### Scoring
+
+Эмбеддинги нормализуются, после чего score считается как скалярное произведение:
+
+```text
+dot(normalize(user_embedding), normalize(item_embedding))
+```
+
+### Loss
+
+Для обучения используется:
+
+- `Adam`
+- `BCEWithLogitsLoss`
+
+## Важное ограничение текущей реализации
+
+Хотя в `users.csv` и `banners.csv` много признаков, модель их сейчас не использует. Фактически в обучение попадают только:
+
+- `user_id`
+- `banner_id`
+- бинарная метка из `clicks`
+
+Это значит:
+
+- проект сейчас ближе к ID-based baseline, чем к полноценной feature-rich recommender system;
+- таблицы пользователей и баннеров нужны главным образом для построения индексов;
+- cold-start для новых `user_id` и `banner_id` не поддержан;
+- неизвестные пользователи и баннеры при подготовке/evaluate/predict отфильтровываются.
+
+## Поток выполнения
+
+Текущий сценарий `main.py`:
+
+1. Создаёт `Config()` из `src/сonfig.py`.
+2. Загружает CSV по путям из конфига.
+3. Строит индексы пользователей и баннеров.
+4. Подготавливает interactions и считает `label`.
+5. Делит данные на `train/valid/test`.
+6. Создаёт `TwoTower()` с дефолтным `TwoTowerConfig`.
+7. Вызывает `fit(train_df, valid_df)`.
+8. Вызывает `evaluate(test_df)`.
+9. Строит `top-k` рекомендации для первых трёх пользователей из `users.csv`.
+10. Сохраняет чекпойнт в `artifacts/twotower_model.pth`.
+
+## Конфигурация
+
+### Конфиг путей и данных
+
+Файл: `src/сonfig.py`
+
+```python
+Config(
+    users_path="data/raw/users.csv",
+    items_path="data/raw/banners.csv",
+    interactions_path="data/raw/interactions.csv",
+    model_save_path="artifacts/twotower_model.pth",
+    max_samples=250_000,
+    seed=42,
+)
+```
+
+### Конфиг модели
+
+Файл: `twotower/config.py`
+
+```python
+TwoTowerConfig(
+    user_embedding_dim=64,
+    item_embedding_dim=64,
+    hidden_dim=64,
+    learning_rate=1e-3,
+    batch_size=2048,
+    epochs=10,
+    validation_ratio=0.2,
+    test_ratio=0.1,
+    max_samples=250_000,
+    max_eval_users=500,
+    top_k=10,
+    seed=42,
+    device="cpu",
+)
+```
+
+## Метрики
+
+Во время обучения и оценки проект считает:
+
+- `train_loss`
+- `valid_loss`
+- `valid_accuracy`
+- `test_loss`
+- `test_accuracy`
+- `recall_at_k`
+
+`recall_at_k` считается только по пользователям с позитивными событиями в evaluation-части и ограничивается первыми `max_eval_users`.
 
 ## Установка
 
-Если используешь `uv`:
+Требования:
+
+- Python `>=3.11`
+- `torch`
+- `pandas`
+- `rich`
+
+Зависимости описаны в `pyproject.toml`.
+
+Через `uv`:
 
 ```bash
 uv sync
 ```
 
-Если используешь стандартный `venv` и `pip`:
+Через `venv` и `pip`:
 
 ```bash
 python -m venv .venv
@@ -62,238 +236,57 @@ pip install -e .
 
 ## Запуск
 
-Основной сценарий запуска:
-
 ```bash
 python main.py
 ```
 
-Если проект установлен через `uv`:
+или
 
 ```bash
 uv run python main.py
 ```
 
-Во время запуска скрипт:
-1. загружает данные из `data/raw/*.csv`
-2. готовит interactions и делит их по времени на `train/valid/test`
-3. создает модель `TwoTower`
-4. обучает модель на `train_df` и `valid_df`
-5. считает метрики на `test_df`
-6. печатает пример рекомендаций для нескольких пользователей
-7. сохраняет веса в `artifacts/twotower_model.pth`
+На выходе скрипт:
 
-## Формат данных
+- печатает прогресс загрузки данных;
+- логирует метрики по эпохам;
+- печатает итоговые метрики на тесте;
+- печатает пример рекомендаций;
+- сохраняет модель в `artifacts/twotower_model.pth`.
 
-### `users.csv`
+## Работа с чекпойнтом
 
-Таблица пользователей. В текущем датасете встречаются поля вроде:
+Класс `TwoTower` умеет:
 
-- `user_id`
-- `age`
-- `gender`
-- `city_tier`
-- `device_os`
-- `platform`
-- `income_band`
-- `activity_segment`
-- `interest_1`, `interest_2`, `interest_3`
-- `country`
-- `signup_days_ago`
-- `is_premium`
+- сохранять модель через `save_model(path)`
+- загружать модель через `load_model(path)`
 
-### `banners.csv`
+В чекпойнт кладутся:
 
-Таблица объектов рекомендаций. В текущем датасете встречаются поля:
+- конфиг модели;
+- `state_dict`;
+- словари индексации пользователей и баннеров;
+- обратные списки `idx -> id`;
+- история обучения `train_history`
 
-- `banner_id`
-- `brand`
-- `category`
-- `subcategory`
-- `banner_format`
-- `campaign_goal`
-- `target_gender`
-- `target_age_min`
-- `target_age_max`
-- `cpm_bid`
-- `quality_score`
-- `created_at`
-- `is_active`
-- `landing_page`
+## Неочевидные особенности проекта
 
-### `interactions.csv`
+- В `src/сonfig.py` первая буква в имени файла — кириллическая `с`, а не латинская `c`. Импорты в проекте уже написаны под это имя: `from src.сonfig import Config`.
+- Функция `split_interactions()` умеет принимать `validation_ratio` и `test_ratio`, но в `main.py` она вызывается без явной передачи значений, поэтому используются её дефолты `0.2` и `0.1`.
+- `TwoTower()` в `main.py` создаётся без передачи внешнего конфига, поэтому обучение идёт на дефолтных значениях из `TwoTowerConfig`.
+- Отдельных тестов, CLI-интерфейса и конфигурации через аргументы командной строки в репозитории сейчас нет.
 
-История взаимодействий пользователей с баннерами. Для обучения критичны поля:
+## Для чего этот проект подходит
 
-- `event_date`
-- `user_id`
-- `banner_id`
-- `clicks`
+- как минимальный baseline для задачи рекомендаций;
+- как учебный пример `two-tower` на PyTorch;
+- как стартовая точка перед добавлением реальных user/item features, negative sampling, retrieval-индекса и offline/online метрик.
 
-Дополнительно в датасете могут быть:
+## Что логично развивать дальше
 
-- `impressions`
-- `ctr`
-
-Таргет формируется так:
-
-```text
-label = 1, если clicks > 0
-label = 0, если clicks == 0
-```
-
-## Как устроена модель
-
-### User tower
-
-Для пользователя используется последовательность:
-
-```text
-Embedding(user_id) -> Linear -> ReLU -> LayerNorm
-```
-
-### Item tower
-
-Для баннера используется такая же схема:
-
-```text
-Embedding(banner_id) -> Linear -> ReLU -> LayerNorm
-```
-
-### Scoring
-
-После этого обе башни возвращают embedding одинаковой размерности, и score пары считается как:
-
-```text
-dot(normalize(user_embedding), normalize(item_embedding))
-```
-
-## Текущий пайплайн обучения
-
-1. Из `users.csv` и `banners.csv` строятся отображения `id -> index`.
-2. `interactions.csv` приводится к нужным типам.
-3. Взаимодействия сортируются по `event_date`.
-4. Если данных больше `max_samples`, выполняется подвыборка с балансировкой позитивных и негативных примеров.
-5. Данные делятся по времени на `train`, `valid`, `test`.
-6. `fit()` принимает готовые `train_df` и `valid_df`.
-7. `evaluate()` принимает отдельный `test_df`.
-8. Модель обучается с `Adam` и `BCEWithLogitsLoss`.
-
-## Конфигурация
-
-Основные параметры находятся в `twotower/config.py`.
-
-Параметры по умолчанию:
-
-```python
-TwoTowerConfig(
-    user_embedding_dim=64,
-    item_embedding_dim=64,
-    hidden_dim=64,
-    learning_rate=1e-3,
-    batch_size=2048,
-    epochs=3,
-    validation_ratio=0.2,
-    test_ratio=0.1,
-    max_samples=250_000,
-    max_eval_users=500,
-    top_k=10,
-    seed=42,
-    device=None,
-)
-```
-
-В `main.py` часть параметров переопределяется, например:
-- `epochs=10`
-- `top_k=5`
-
-## Метрики
-
-Проект считает:
-
-- `valid_loss`
-- `valid_accuracy`
-- `test_loss`
-- `test_accuracy`
-- `recall_at_k`
-
-Во время обучения логируются `valid_loss` и `valid_accuracy`.
-
-В `evaluate(test_df)` считаются `test_loss`, `test_accuracy` и `recall_at_k`.
-
-`recall_at_k` считается по пользователям из тестового набора, у которых есть положительные взаимодействия.
-
-## Использование из кода
-
-Пример программного использования:
-
-```python
-from src.data import fit_id_mappings, load_data, prepare_interactions, split_interactions
-from twotower import TwoTower, TwoTowerConfig
-
-data_config = {
-    "users_path": "data/raw/users.csv",
-    "items_path": "data/raw/banners.csv",
-    "interactions_path": "data/raw/interactions.csv",
-    "max_samples": 250_000,
-    "seed": 42,
-}
-
-users_df, items_df, interactions_df = load_data(data_config)
-user_idx, item_idx = fit_id_mappings(users_df, items_df)
-interactions = prepare_interactions(interactions_df, user_idx, item_idx, data_config)
-train_df, valid_df, test_df = split_interactions(interactions)
-
-model = TwoTower(TwoTowerConfig())
-model.fit(train_df, valid_df)
-
-metrics = model.evaluate(test_df, top_k=5)
-predictions = model.predict(user_ids=[1, 2, 3], top_k=5)
-
-model.save_model("artifacts/twotower_model.pth")
-```
-
-Загрузка сохраненной модели:
-
-```python
-from twotower import TwoTower
-
-model = TwoTower().load_model("artifacts/twotower_model.pth")
-predictions = model.predict(user_ids=[1, 2, 3], top_k=5)
-```
-
-## Ограничения текущего baseline
-
-Это именно baseline-реализация, и у нее есть важные ограничения:
-
-- модель ожидает, что train/valid/test уже подготовлены на уровне пайплайна данных
-- используются только `user_id` и `banner_id`
-- признаки из `users.csv` и `banners.csv` пока не участвуют в обучении
-- нет отдельного production-ready пайплайна инференса
-- нет тестов
-- нет логирования экспериментов
-- нет конфигурации через CLI или env
-- нет hard negative sampling и более продвинутых retrieval-loss функций
-
-Из-за этого качество может быть ограничено, особенно на холодных пользователях и новых баннерах.
-
-## Идеи для развития
-
-- добавить user/item features поверх ID embeddings
-- ввести категориальные и числовые признаки
-- добавить negative sampling для retrieval-задачи
-- использовать более подходящие ranking-метрики
-- вынести обучение и инференс в отдельные команды
-- добавить тесты и описание экспериментов
-- сохранить preprocessing и конфиг вместе с моделью более формально
-
-## Полезные файлы
-
-- `main.py` — быстрый end-to-end запуск
-- `src/data.py` — загрузка и подготовка данных
-- `twotower/core.py` — основная логика модели
-- `twotower/config.py` — параметры модели
-
-## Статус
-
-Проект находится на стадии рабочего прототипа / baseline для дальнейших экспериментов с retrieval-рекомендациями.
+- подключить табличные признаки пользователей и баннеров в обе башни;
+- вынести параметры запуска в единый конфиг;
+- добавить CLI или `.env`/YAML-конфиг;
+- покрыть пайплайн тестами;
+- разделить retrieval и ranking;
+- добавить более информативные метрики, например `precision@k`, `map@k`, `ndcg@k`.

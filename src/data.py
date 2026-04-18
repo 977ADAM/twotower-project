@@ -1,14 +1,15 @@
 import pandas as pd
 from rich.console import Console
+from src.сonfig import Config
 
 console = Console()
 
-def load_data(config):
-    users_df = pd.read_csv(config["users_path"])
+def load_data(config: Config):
+    users_df = pd.read_csv(config.users_path)
     console.print("Users data loaded.")
-    items_df = pd.read_csv(config["items_path"])
+    items_df = pd.read_csv(config.items_path)
     console.print("Banners data loaded.")
-    interactions_df = pd.read_csv(config["interactions_path"])
+    interactions_df = pd.read_csv(config.interactions_path)
     console.print("Interactions data loaded.")
     return users_df, items_df, interactions_df
 
@@ -33,7 +34,7 @@ def prepare_interactions(
         interactions_df: pd.DataFrame,
         user_idx: dict[int, int],
         item_idx: dict[int, int],
-        config: dict[str, int | None]
+        config: Config,
     ) -> pd.DataFrame:
 
     required_columns = {"event_date", "user_id", "banner_id", "clicks"}
@@ -51,20 +52,20 @@ def prepare_interactions(
         & interactions["banner_id"].isin(item_idx)
     ]
 
-    if config["max_samples"] and len(interactions) > config["max_samples"]:
+    if config.max_samples and len(interactions) > config.max_samples:
         positives = interactions[interactions["label"] == 1.0]
         negatives = interactions[interactions["label"] == 0.0]
-        positive_target = min(len(positives), config["max_samples"] // 2)
-        negative_target = min(len(negatives), config["max_samples"] - positive_target)
+        positive_target = min(len(positives), config.max_samples // 2)
+        negative_target = min(len(negatives), config.max_samples - positive_target)
 
         sampled_frames = []
         if positive_target:
             sampled_frames.append(
-                positives.sample(n=positive_target, random_state=config["seed"], replace=False)
+                positives.sample(n=positive_target, random_state=config.seed, replace=False)
             )
         if negative_target:
             sampled_frames.append(
-                negatives.sample(n=negative_target, random_state=config["seed"], replace=False)
+                negatives.sample(n=negative_target, random_state=config.seed, replace=False)
             )
         interactions = pd.concat(sampled_frames, ignore_index=True)
 
@@ -99,13 +100,7 @@ def split_interactions(
 
 
 if __name__ == "__main__":
-    config = {
-        "users_path": "data/raw/users.csv",
-        "items_path": "data/raw/banners.csv",
-        "interactions_path": "data/raw/interactions.csv",
-        "max_samples": 250_000,
-        "seed": 42,
-    }
+    config = Config()
 
     users_df, items_df, interactions_df = load_data(config)
 

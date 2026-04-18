@@ -53,19 +53,13 @@ class TwoTowerBase(nn.Module):
 
 
 class TwoTower(TwoTowerBase):
-    def __init__(self, config: TwoTowerConfig | dict | None = None):
+    def __init__(self, config: TwoTowerConfig | None = None):
         if config is None:
             config = TwoTowerConfig()
-        elif isinstance(config, dict):
-            filtered_config = {
-                field: value
-                for field, value in config.items()
-                if field in TwoTowerConfig.__dataclass_fields__
-            }
-            config = TwoTowerConfig(**filtered_config)
 
         super().__init__(config)
-        self.device = torch.device(config.device or ("cuda" if torch.cuda.is_available() else "cpu"))
+        self.config = config
+        self.device = torch.device(config.device)
         self.user_id_to_idx: dict[int, int] = {}
         self.item_id_to_idx: dict[int, int] = {}
         self.idx_to_user_id: list[int] = []
