@@ -1,6 +1,8 @@
 import pandas as pd
 from rich.console import Console
 from src.сonfig import Config
+from twotower.data import prepare_interactions as prepare_twotower_interactions
+from twotower.data import split_interactions as split_twotower_interactions
 
 console = Console()
 
@@ -36,66 +38,24 @@ def prepare_interactions(
         item_idx: dict[int, int],
         config: Config,
     ) -> pd.DataFrame:
-
-    required_columns = {"event_date", "user_id", "banner_id", "clicks"}
-    missing_columns = required_columns.difference(interactions_df.columns)
-    if missing_columns:
-        raise ValueError(f"Interactions dataframe is missing columns: {sorted(missing_columns)}")
-
-    interactions = interactions_df.loc[:, ["event_date", "user_id", "banner_id", "clicks"]].copy()
-    interactions["event_date"] = pd.to_datetime(interactions["event_date"])
-    interactions["user_id"] = interactions["user_id"].astype(int)
-    interactions["banner_id"] = interactions["banner_id"].astype(int)
-    interactions["label"] = (interactions["clicks"] > 0).astype("float32")
-    interactions = interactions[
-        interactions["user_id"].isin(user_idx)
-        & interactions["banner_id"].isin(item_idx)
-    ]
-
-    if config.max_samples and len(interactions) > config.max_samples:
-        positives = interactions[interactions["label"] == 1.0]
-        negatives = interactions[interactions["label"] == 0.0]
-        positive_target = min(len(positives), config.max_samples // 2)
-        negative_target = min(len(negatives), config.max_samples - positive_target)
-
-        sampled_frames = []
-        if positive_target:
-            sampled_frames.append(
-                positives.sample(n=positive_target, random_state=config.seed, replace=False)
-            )
-        if negative_target:
-            sampled_frames.append(
-                negatives.sample(n=negative_target, random_state=config.seed, replace=False)
-            )
-        interactions = pd.concat(sampled_frames, ignore_index=True)
-
-    return interactions.sort_values("event_date").reset_index(drop=True)
+    return prepare_twotower_interactions(
+        interactions_df=interactions_df,
+        user_id_to_idx=user_idx,
+        item_id_to_idx=item_idx,
+        max_samples=config.max_samples,
+        seed=config.seed,
+    )
 
 def split_interactions(
     interactions_df: pd.DataFrame,
     validation_ratio: float = 0.2,
     test_ratio: float = 0.1,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    if interactions_df.empty:
-        raise ValueError("Interactions dataframe must not be empty.")
-    if not 0 <= validation_ratio < 1:
-        raise ValueError("validation_ratio must be in [0, 1).")
-    if not 0 <= test_ratio < 1:
-        raise ValueError("test_ratio must be in [0, 1).")
-    if validation_ratio + test_ratio >= 1:
-        raise ValueError("validation_ratio + test_ratio must be less than 1.")
-
-    total_rows = len(interactions_df)
-    train_end = int(total_rows * (1 - validation_ratio - test_ratio))
-    valid_end = int(total_rows * (1 - test_ratio))
-
-    train_end = min(max(train_end, 1), total_rows - 2)
-    valid_end = min(max(valid_end, train_end + 1), total_rows - 1)
-
-    train_df = interactions_df.iloc[:train_end].copy()
-    valid_df = interactions_df.iloc[train_end:valid_end].copy()
-    test_df = interactions_df.iloc[valid_end:].copy()
-    return train_df, valid_df, test_df
+    return split_twotower_interactions(
+        interactions_df=interactions_df,
+        validation_ratio=validation_ratio,
+        test_ratio=test_ratio,
+    )
 
 
 
