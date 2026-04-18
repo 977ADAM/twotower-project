@@ -11,6 +11,7 @@ class TwoTowerConfig:
     validation_ratio: float = 0.2
     test_ratio: float = 0.1
     max_samples: int | None = 250_000
+    eval_top_ks: tuple[int, ...] = (50, 100, 300)
     max_eval_users: int = 500
     top_k: int = 100
     seed: int = 42

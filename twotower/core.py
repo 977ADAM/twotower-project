@@ -36,6 +36,8 @@ class TwoTower(TwoTowerBase):
         self.train_history: list[dict[str, float]] = []
         self.train_df: pd.DataFrame | None = None
         self.valid_df: pd.DataFrame | None = None
+        self._seen_items_by_user: dict[int, set[int]] = {}
+        self._train_positive_item_ids_by_popularity: list[int] = []
         self._cached_all_item_embeddings: torch.Tensor | None = None
         self._cached_all_item_ids: list[int] | None = None
 
@@ -52,27 +54,27 @@ class TwoTower(TwoTowerBase):
         `X_train` and `X_valid` must contain `user_id` and `banner_id` columns.
         `y_train` and `y_valid` must contain the corresponding binary labels.
         """
-        self.train_df, self.valid_df = self._prepare_fit_inputs(
+        prepared_train_df, prepared_valid_df, reference_train_df = self._prepare_fit_inputs(
             X_train=X_train,
             y_train=y_train,
             X_valid=X_valid,
             y_valid=y_valid,
         )
+        self.train_df = reference_train_df
+        self.valid_df = prepared_valid_df
+        self._refresh_evaluation_reference_data()
 
         self._invalidate_item_embedding_cache()
 
         fit_inputs = FitInputs(
-            train_df=self.train_df,
-            valid_df=self.valid_df,
+            train_df=prepared_train_df,
+            valid_df=prepared_valid_df,
             num_users=len(self.idx_to_user_id),
             num_items=len(self.idx_to_item_id),
         )
         trainer = TwoTowerTrainer(config=self.config, device=self.device)
 
         fit_result = trainer.fit(self, fit_inputs)
-
-        self.train_df = fit_result.train_df
-        self.valid_df = fit_result.valid_df
         self.train_history = fit_result.history
 
         self._invalidate_item_embedding_cache()
@@ -149,12 +151,23 @@ class TwoTower(TwoTowerBase):
             )
 
         metrics = self._evaluate_loader(self._make_loader(prepared_test_df, shuffle=False), prefix="test")
-        metrics["recall_at_k"] = self._recall_at_k(prepared_test_df, top_k or self.config.top_k)
+        eval_top_ks = self._resolve_eval_top_ks(top_k)
+        for eval_top_k in eval_top_ks:
+            metrics[f"recall_at_{eval_top_k}"] = self._recall_at_k(prepared_test_df, eval_top_k)
+            metrics[f"popularity_recall_at_{eval_top_k}"] = self._popularity_recall_at_k(
+                prepared_test_df,
+                eval_top_k,
+            )
+        selected_top_k = top_k or self.config.top_k
+        metrics["recall_at_k"] = metrics[f"recall_at_{selected_top_k}"]
+        metrics["popularity_recall_at_k"] = metrics[f"popularity_recall_at_{selected_top_k}"]
         metrics["test_input_rows"] = float(input_row_count)
         metrics["test_rows_used"] = float(len(prepared_test_df))
         metrics["test_rows_filtered"] = float(input_row_count - len(prepared_test_df))
         metrics["test_unknown_user_rows"] = float(unknown_user_row_count)
         metrics["test_unknown_item_rows"] = float(unknown_item_row_count)
+        metrics["test_positive_rate"] = float(prepared_test_df["label"].mean())
+        metrics["test_eval_user_count"] = float(len(self._get_eval_user_ids(prepared_test_df)))
         metrics["test_rows_filtered_ratio"] = (
             float(input_row_count - len(prepared_test_df)) / max(float(input_row_count), 1.0)
         )
@@ -175,6 +188,11 @@ class TwoTower(TwoTowerBase):
             "idx_to_user_id": self.idx_to_user_id,
             "idx_to_item_id": self.idx_to_item_id,
             "train_history": self.train_history,
+            "seen_items_by_user": {
+                int(user_id): sorted(int(item_id) for item_id in item_ids)
+                for user_id, item_ids in self._seen_items_by_user.items()
+            },
+            "train_positive_item_ids_by_popularity": self._train_positive_item_ids_by_popularity,
         }
         torch.save(checkpoint, target_path)
         console.print(f"Model saved to {target_path}")
@@ -194,6 +212,16 @@ class TwoTower(TwoTowerBase):
         self.idx_to_user_id = checkpoint["idx_to_user_id"]
         self.idx_to_item_id = checkpoint["idx_to_item_id"]
         self.train_history = checkpoint.get("train_history", [])
+        self.train_df = None
+        self.valid_df = None
+        self._seen_items_by_user = {
+            int(user_id): {int(item_id) for item_id in item_ids}
+            for user_id, item_ids in checkpoint.get("seen_items_by_user", {}).items()
+        }
+        self._train_positive_item_ids_by_popularity = [
+            int(item_id)
+            for item_id in checkpoint.get("train_positive_item_ids_by_popularity", [])
+        ]
 
         self.build_towers(len(self.idx_to_user_id), len(self.idx_to_item_id))
         self.load_state_dict(checkpoint["state_dict"])
@@ -239,6 +267,16 @@ class TwoTower(TwoTowerBase):
         interactions_df: pd.DataFrame,
         apply_sampling: bool = False,
     ) -> pd.DataFrame:
+        if "label" in interactions_df.columns:
+            prepared_interactions = interactions_df.copy()
+            if "event_date" not in prepared_interactions.columns:
+                prepared_interactions["event_date"] = pd.Timestamp("1970-01-01")
+            return self._filter_and_sample_interactions(
+                interactions_df=prepared_interactions,
+                apply_sampling=apply_sampling,
+                sort_by_event_date=True,
+            )
+
         normalized_interactions = normalize_interactions(interactions_df)
         return self._filter_and_sample_interactions(
             interactions_df=normalized_interactions,
@@ -266,7 +304,11 @@ class TwoTower(TwoTowerBase):
             evaluation_df["user_id"] = evaluation_df["user_id"].astype(int)
             evaluation_df["banner_id"] = evaluation_df["banner_id"].astype(int)
             evaluation_df["label"] = evaluation_df["label"].astype("float32")
-            return evaluation_df
+            if "event_date" not in evaluation_df.columns:
+                evaluation_df["event_date"] = pd.Timestamp("1970-01-01")
+            else:
+                evaluation_df["event_date"] = pd.to_datetime(evaluation_df["event_date"])
+            return evaluation_df.loc[:, ["event_date", "user_id", "banner_id", "label"]]
 
         if "clicks" not in X_test.columns:
             raise ValueError(
@@ -276,7 +318,7 @@ class TwoTower(TwoTowerBase):
         evaluation_df = X_test.copy()
         if "event_date" not in evaluation_df.columns:
             evaluation_df["event_date"] = pd.Timestamp("1970-01-01")
-        return evaluation_df
+        return normalize_interactions(evaluation_df)
 
     def _prepare_prediction_inputs(
         self,
@@ -308,7 +350,7 @@ class TwoTower(TwoTowerBase):
         y_train: TargetLike,
         X_valid: pd.DataFrame,
         y_valid: TargetLike,
-    ) -> tuple[pd.DataFrame, pd.DataFrame]:
+    ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         """Validate fit inputs, build id mappings, and prepare train/valid splits."""
         train_df = self._build_labeled_interactions(X_train, y_train, split_name="train")
         valid_df = self._build_labeled_interactions(X_valid, y_valid, split_name="valid")
@@ -324,7 +366,12 @@ class TwoTower(TwoTowerBase):
             apply_sampling=False,
             sort_by_event_date=False,
         )
-        return prepared_train_df, prepared_valid_df
+        reference_train_df = self._filter_and_sample_interactions(
+            interactions_df=train_df,
+            apply_sampling=False,
+            sort_by_event_date=False,
+        )
+        return prepared_train_df, prepared_valid_df, reference_train_df
 
     def _build_labeled_interactions(
         self,
@@ -447,12 +494,25 @@ class TwoTower(TwoTowerBase):
             f"{prefix}_accuracy": correct / max(total, 1),
         }
 
-    def _recall_at_k(self, evaluation_df: pd.DataFrame, top_k: int) -> float:
+    def _resolve_eval_top_ks(self, top_k: int | None) -> list[int]:
+        requested_top_ks = list(self.config.eval_top_ks)
+        requested_top_ks.append(top_k or self.config.top_k)
+
+        resolved_top_ks: list[int] = []
+        for candidate_top_k in requested_top_ks:
+            candidate_value = int(candidate_top_k)
+            if candidate_value <= 0:
+                raise ValueError("Evaluation top-k values must be positive integers.")
+            if candidate_value not in resolved_top_ks:
+                resolved_top_ks.append(candidate_value)
+        return resolved_top_ks
+
+    def _get_eval_user_ids(self, evaluation_df: pd.DataFrame) -> list[int]:
         positive_df = evaluation_df[evaluation_df["label"] == 1.0]
         if positive_df.empty:
-            return 0.0
+            return []
 
-        candidate_user_ids = (
+        return (
             positive_df["user_id"]
             .drop_duplicates()
             .head(self.config.max_eval_users)
@@ -460,6 +520,12 @@ class TwoTower(TwoTowerBase):
             .tolist()
         )
 
+    def _recall_at_k(self, evaluation_df: pd.DataFrame, top_k: int) -> float:
+        candidate_user_ids = self._get_eval_user_ids(evaluation_df)
+        if not candidate_user_ids:
+            return 0.0
+
+        positive_df = evaluation_df[evaluation_df["label"] == 1.0]
         recalls = []
         seen_items_by_user = self._build_seen_items_by_user()
         item_embeddings, item_ids = self._build_candidate_item_embeddings()
@@ -477,21 +543,76 @@ class TwoTower(TwoTowerBase):
 
         return float(sum(recalls) / len(recalls)) if recalls else 0.0
 
+    def _popularity_recall_at_k(self, evaluation_df: pd.DataFrame, top_k: int) -> float:
+        candidate_user_ids = self._get_eval_user_ids(evaluation_df)
+        if not candidate_user_ids:
+            return 0.0
+
+        popularity_ranking = self._build_train_positive_item_ranking()
+        if not popularity_ranking:
+            return 0.0
+
+        positive_df = evaluation_df[evaluation_df["label"] == 1.0]
+        recalls = []
+        seen_items_by_user = self._build_seen_items_by_user()
+        for user_id in candidate_user_ids:
+            actual_items = set(positive_df.loc[positive_df["user_id"] == user_id, "banner_id"].astype(int))
+            if not actual_items:
+                continue
+
+            excluded_item_ids = seen_items_by_user.get(user_id, set())
+            predicted_items: list[int] = []
+            for item_id in popularity_ranking:
+                if item_id in excluded_item_ids:
+                    continue
+                predicted_items.append(item_id)
+                if len(predicted_items) == top_k:
+                    break
+
+            recalls.append(len(actual_items & set(predicted_items)) / len(actual_items))
+
+        return float(sum(recalls) / len(recalls)) if recalls else 0.0
+
     def _ensure_fitted(self) -> None:
         if self.user_tower is None or self.item_tower is None:
             raise RuntimeError("Model is not fitted yet.")
 
-    def _build_seen_items_by_user(self) -> dict[int, set[int]]:
-        seen_items_by_user: dict[int, set[int]] = {}
+    def _refresh_evaluation_reference_data(self) -> None:
+        self._seen_items_by_user = {}
         for dataframe in (self.train_df, self.valid_df):
             if dataframe is None or dataframe.empty:
                 continue
             grouped = dataframe.groupby("user_id")["banner_id"]
             for user_id, item_ids in grouped:
-                seen_items_by_user.setdefault(int(user_id), set()).update(
+                self._seen_items_by_user.setdefault(int(user_id), set()).update(
                     int(item_id) for item_id in item_ids.tolist()
                 )
-        return seen_items_by_user
+
+        if self.train_df is None or self.train_df.empty:
+            self._train_positive_item_ids_by_popularity = []
+            return
+
+        self._train_positive_item_ids_by_popularity = (
+            self.train_df.loc[self.train_df["label"] == 1.0, "banner_id"]
+            .astype(int)
+            .value_counts()
+            .index
+            .tolist()
+        )
+
+    def _build_seen_items_by_user(self) -> dict[int, set[int]]:
+        if self._seen_items_by_user:
+            return self._seen_items_by_user
+
+        self._refresh_evaluation_reference_data()
+        return self._seen_items_by_user
+
+    def _build_train_positive_item_ranking(self) -> list[int]:
+        if self._train_positive_item_ids_by_popularity:
+            return self._train_positive_item_ids_by_popularity
+
+        self._refresh_evaluation_reference_data()
+        return self._train_positive_item_ids_by_popularity
 
     def _build_candidate_item_embeddings(self) -> tuple[torch.Tensor, list[int]]:
         if self._cached_all_item_embeddings is None or self._cached_all_item_ids is None:

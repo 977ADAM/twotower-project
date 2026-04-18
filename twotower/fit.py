@@ -37,8 +37,6 @@ class FitResult:
     """Artifacts returned by the trainer after fitting."""
 
     history: list[dict[str, float]]
-    train_df: pd.DataFrame
-    valid_df: pd.DataFrame
 
 
 class TrainableTwoTower(Protocol):
@@ -112,15 +110,10 @@ class TwoTowerTrainer:
             console.print(
                 f"Epoch {epoch}/{self.config.epochs} "
                 f"train_loss={epoch_metrics['train_loss']:.4f} "
-                f"valid_loss={epoch_metrics['valid_loss']:.4f} "
-                f"valid_accuracy={epoch_metrics['valid_accuracy']:.4f}"
+                f"valid_loss={epoch_metrics['valid_loss']:.4f}"
             )
 
-        return FitResult(
-            history=state.history,
-            train_df=inputs.train_df,
-            valid_df=inputs.valid_df,
-        )
+        return FitResult(history=state.history)
 
     def build_optimizer(self, model: TrainableTwoTower) -> torch.optim.Optimizer:
         """Create the optimizer used by the training loop."""

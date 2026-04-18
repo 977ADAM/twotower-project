@@ -2,7 +2,7 @@ from rich.console import Console
 
 from src.data import fit_id_mappings, load_data, prepare_interactions, split_interactions
 from src.сonfig import Config
-from twotower import TwoTower
+from twotower import TwoTower, TwoTowerConfig
 
 console = Console()
 
@@ -18,7 +18,7 @@ def main():
     X_valid = valid_df.loc[:, ["user_id", "banner_id"]].copy()
     y_valid = valid_df["label"].copy()
 
-    model = TwoTower()
+    model = TwoTower(TwoTowerConfig(max_samples=config.max_samples))
     model.fit(X_train=X_train, y_train=y_train, X_valid=X_valid, y_valid=y_valid)
 
     metrics = model.evaluate(test_df)

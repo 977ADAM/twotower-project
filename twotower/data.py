@@ -26,28 +26,13 @@ def prepare_interactions(
     max_samples: int | None = None,
     seed: int = 42,
 ) -> pd.DataFrame:
+    del max_samples, seed
+
     interactions = normalize_interactions(interactions_df)
     interactions = interactions[
         interactions["user_id"].isin(user_id_to_idx)
         & interactions["banner_id"].isin(item_id_to_idx)
     ]
-
-    if max_samples and len(interactions) > max_samples:
-        positives = interactions[interactions["label"] == 1.0]
-        negatives = interactions[interactions["label"] == 0.0]
-        positive_target = min(len(positives), max_samples // 2)
-        negative_target = min(len(negatives), max_samples - positive_target)
-
-        sampled_frames = []
-        if positive_target:
-            sampled_frames.append(
-                positives.sample(n=positive_target, random_state=seed, replace=False)
-            )
-        if negative_target:
-            sampled_frames.append(
-                negatives.sample(n=negative_target, random_state=seed, replace=False)
-            )
-        interactions = pd.concat(sampled_frames, ignore_index=True)
 
     return interactions.sort_values("event_date").reset_index(drop=True)
 
