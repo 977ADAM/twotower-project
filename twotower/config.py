@@ -4,6 +4,7 @@ from dataclasses import dataclass
 class TwoTowerConfig:
     user_embedding_dim: int = 64
     item_embedding_dim: int = 64
+    side_feature_embedding_dim: int = 8
     hidden_dim: int = 64
     retrieval_temperature: float = 0.1
     symmetric_retrieval_loss: bool = True

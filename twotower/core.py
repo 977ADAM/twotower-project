@@ -14,6 +14,12 @@ from torch.utils.data import DataLoader, TensorDataset
 
 from twotower.config import TwoTowerConfig
 from twotower.data import normalize_interactions
+from twotower.features import (
+    FeatureMetadata,
+    FeatureTables,
+    build_item_feature_tables,
+    build_user_feature_tables,
+)
 from twotower.fit import FitInputs, TwoTowerTrainer, compute_in_batch_retrieval_loss
 from twotower.modules import TwoTowerBase
 
@@ -40,6 +46,10 @@ class TwoTower(TwoTowerBase):
         self._train_positive_item_ids_by_popularity: list[int] = []
         self._cached_all_item_embeddings: torch.Tensor | None = None
         self._cached_all_item_ids: list[int] | None = None
+        self._user_feature_tables: FeatureTables | None = None
+        self._item_feature_tables: FeatureTables | None = None
+        self._user_feature_metadata: FeatureMetadata = FeatureMetadata.empty()
+        self._item_feature_metadata: FeatureMetadata = FeatureMetadata.empty()
 
     def fit(
         self,
@@ -48,6 +58,8 @@ class TwoTower(TwoTowerBase):
         y_train: TargetLike,
         X_valid: pd.DataFrame,
         y_valid: TargetLike,
+        users_df: pd.DataFrame | None = None,
+        items_df: pd.DataFrame | None = None,
     ) -> list[dict[str, float]]:
         """Fit the model on interaction pairs.
 
@@ -63,6 +75,7 @@ class TwoTower(TwoTowerBase):
         self.train_df = reference_train_df
         self.valid_df = reference_valid_df
         self._refresh_evaluation_reference_data()
+        self._prepare_side_feature_tables(users_df=users_df, items_df=items_df)
 
         self._invalidate_item_embedding_cache()
 
@@ -199,6 +212,8 @@ class TwoTower(TwoTowerBase):
                 for user_id, item_ids in self._seen_items_by_user.items()
             },
             "train_positive_item_ids_by_popularity": self._train_positive_item_ids_by_popularity,
+            "user_feature_metadata": self._user_feature_metadata.to_dict(),
+            "item_feature_metadata": self._item_feature_metadata.to_dict(),
         }
         torch.save(checkpoint, target_path)
         console.print(f"Model saved to {target_path}")
@@ -228,6 +243,10 @@ class TwoTower(TwoTowerBase):
             int(item_id)
             for item_id in checkpoint.get("train_positive_item_ids_by_popularity", [])
         ]
+        self._user_feature_tables = None
+        self._item_feature_tables = None
+        self._user_feature_metadata = FeatureMetadata.from_dict(checkpoint.get("user_feature_metadata"))
+        self._item_feature_metadata = FeatureMetadata.from_dict(checkpoint.get("item_feature_metadata"))
 
         self.build_towers(len(self.idx_to_user_id), len(self.idx_to_item_id))
         self.load_state_dict(checkpoint["state_dict"])
@@ -267,6 +286,33 @@ class TwoTower(TwoTowerBase):
         self.idx_to_item_id = train_df["banner_id"].astype(int).drop_duplicates().sort_values().tolist()
         self.user_id_to_idx = {user_id: idx for idx, user_id in enumerate(self.idx_to_user_id)}
         self.item_id_to_idx = {item_id: idx for idx, item_id in enumerate(self.idx_to_item_id)}
+
+    def _prepare_side_feature_tables(
+        self,
+        *,
+        users_df: pd.DataFrame | None,
+        items_df: pd.DataFrame | None,
+    ) -> None:
+        if users_df is None and items_df is None:
+            self._user_feature_tables = None
+            self._item_feature_tables = None
+            self._user_feature_metadata = FeatureMetadata.empty()
+            self._item_feature_metadata = FeatureMetadata.empty()
+            return
+
+        if users_df is None or items_df is None:
+            raise ValueError("`users_df` and `items_df` must be provided together when using side features.")
+
+        self._user_feature_tables = build_user_feature_tables(
+            users_df=users_df,
+            user_ids=self.idx_to_user_id,
+        )
+        self._item_feature_tables = build_item_feature_tables(
+            items_df=items_df,
+            item_ids=self.idx_to_item_id,
+        )
+        self._user_feature_metadata = self._user_feature_tables.metadata
+        self._item_feature_metadata = self._item_feature_tables.metadata
 
     def _prepare_interactions(
         self,

@@ -68,6 +68,12 @@ class TrainableTwoTower(Protocol):
     def parameters(self):
         ...
 
+    def state_dict(self) -> dict[str, torch.Tensor]:
+        ...
+
+    def load_state_dict(self, state_dict: dict[str, torch.Tensor]):
+        ...
+
     def train(self, mode: bool = True):
         ...
 
@@ -107,6 +113,8 @@ class TwoTowerTrainer:
         criterion = self.build_loss()
 
         state = FitState()
+        best_valid_loss: float | None = None
+        best_state_dict: dict[str, torch.Tensor] | None = None
         for epoch in range(1, self.config.epochs + 1):
             train_metrics = self.train_epoch(
                 model=model,
@@ -127,11 +135,22 @@ class TwoTowerTrainer:
             state.epoch = epoch
             state.history.append(epoch_metrics)
 
+            current_valid_loss = epoch_metrics["valid_loss"]
+            if best_valid_loss is None or current_valid_loss < best_valid_loss:
+                best_valid_loss = current_valid_loss
+                best_state_dict = {
+                    name: tensor.detach().cpu().clone()
+                    for name, tensor in model.state_dict().items()
+                }
+
             console.print(
                 f"Epoch {epoch}/{self.config.epochs} "
                 f"train_loss={epoch_metrics['train_loss']:.4f} "
                 f"valid_loss={epoch_metrics['valid_loss']:.4f}"
             )
+
+        if best_state_dict is not None:
+            model.load_state_dict(best_state_dict)
 
         return FitResult(history=state.history)
 

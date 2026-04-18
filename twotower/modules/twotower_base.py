@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from twotower.config import TwoTowerConfig
+from twotower.features import FeatureMetadata
 from .item_tower import ItemTower
 from .user_tower import UserTower
 
@@ -21,8 +22,18 @@ class TwoTowerBase(nn.Module):
             self.build_towers(num_users, num_items)
 
     def build_towers(self, num_users: int, num_items: int) -> None:
-        self.user_tower = UserTower(num_users, self.config)
-        self.item_tower = ItemTower(num_items, self.config)
+        self.user_tower = UserTower(
+            num_users,
+            self.config,
+            feature_tables=getattr(self, "_user_feature_tables", None),
+            feature_metadata=getattr(self, "_user_feature_metadata", FeatureMetadata.empty()),
+        )
+        self.item_tower = ItemTower(
+            num_items,
+            self.config,
+            feature_tables=getattr(self, "_item_feature_tables", None),
+            feature_metadata=getattr(self, "_item_feature_metadata", FeatureMetadata.empty()),
+        )
 
     def forward(
         self,

@@ -19,7 +19,14 @@ def main():
     y_valid = valid_df["label"].copy()
 
     model = TwoTower(TwoTowerConfig(max_samples=config.max_samples))
-    model.fit(X_train=X_train, y_train=y_train, X_valid=X_valid, y_valid=y_valid)
+    model.fit(
+        X_train=X_train,
+        y_train=y_train,
+        X_valid=X_valid,
+        y_valid=y_valid,
+        users_df=users_df,
+        items_df=items_df,
+    )
 
     metrics = model.evaluate(test_df)
     console.print({"metrics": metrics})
