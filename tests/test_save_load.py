@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import tempfile
-import unittest
 from pathlib import Path
 
+import pytest
 import torch
 
 from twotower.config import TwoTowerConfig
@@ -81,64 +81,59 @@ class StubLoadableModel:
         self.eval_calls += 1
 
 
-class CheckpointServiceTests(unittest.TestCase):
-    def test_save_model_persists_checkpoint_payload(self):
-        saver = TwoTowerModelSaver()
-        model = StubSaveableModel()
+def test_save_model_persists_checkpoint_payload():
+    saver = TwoTowerModelSaver()
+    model = StubSaveableModel()
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            target_path = Path(tmpdir) / "nested" / "model.pth"
-            saved_path = saver.save_model(model, target_path)
-            checkpoint = torch.load(saved_path, map_location="cpu")
+    with tempfile.TemporaryDirectory() as tmpdir:
+        target_path = Path(tmpdir) / "nested" / "model.pth"
+        saved_path = saver.save_model(model, target_path)
+        checkpoint = torch.load(saved_path, map_location="cpu")
 
-        self.assertEqual(model.ensure_fitted_calls, 1)
-        self.assertEqual(saved_path, target_path)
-        self.assertTrue("config" in checkpoint)
-        self.assertTrue(torch.equal(checkpoint["state_dict"]["weight"], torch.tensor([1.0, 2.0])))
-        self.assertEqual(checkpoint["seen_items_by_user"], {1: [10, 30]})
-        self.assertEqual(checkpoint["train_positive_item_ids_by_popularity"], [30, 10])
-
-    def test_load_model_restores_checkpoint_state_through_protocol(self):
-        loader = TwoTowerModelLoader()
-        model = StubLoadableModel()
-        checkpoint = {
-            "config": TwoTowerConfig(top_k=5, device="cpu").__dict__,
-            "state_dict": {"weight": torch.tensor([3.0])},
-            "user_id_to_idx": {1: 0},
-            "item_id_to_idx": {10: 0, 30: 1},
-            "idx_to_user_id": [1],
-            "idx_to_item_id": [10, 30],
-            "train_history": [{"epoch": 1.0, "train_loss": 0.2, "valid_loss": 0.1}],
-            "seen_items_by_user": {1: [10, 30]},
-            "train_positive_item_ids_by_popularity": [30, 10],
-            "user_feature_metadata": FeatureMetadata.empty().to_dict(),
-            "item_feature_metadata": FeatureMetadata.empty().to_dict(),
-        }
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            checkpoint_path = Path(tmpdir) / "model.pth"
-            torch.save(checkpoint, checkpoint_path)
-            loader.load_model(model, checkpoint_path)
-
-        self.assertEqual(len(model.validate_calls), 1)
-        self.assertEqual(model.resolve_device_calls, ["cpu"])
-        self.assertIsNotNone(model.applied_state)
-        self.assertEqual(model.applied_state.idx_to_user_id, [1])
-        self.assertEqual(model.applied_state.seen_items_by_user, {1: {10, 30}})
-        self.assertEqual(model.build_tower_calls, [(1, 2)])
-        self.assertTrue(torch.equal(model.loaded_state_dict["weight"], torch.tensor([3.0])))
-        self.assertEqual(model.to_calls, [torch.device("cpu")])
-        self.assertEqual(model.invalidate_calls, 1)
-        self.assertEqual(model.eval_calls, 1)
-
-    def test_load_model_raises_when_checkpoint_is_missing(self):
-        loader = TwoTowerModelLoader()
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            missing_path = Path(tmpdir) / "missing.pth"
-            with self.assertRaises(FileNotFoundError):
-                loader.load_model(StubLoadableModel(), missing_path)
+    assert model.ensure_fitted_calls == 1
+    assert saved_path == target_path
+    assert "config" in checkpoint
+    assert torch.equal(checkpoint["state_dict"]["weight"], torch.tensor([1.0, 2.0]))
+    assert checkpoint["seen_items_by_user"] == {1: [10, 30]}
+    assert checkpoint["train_positive_item_ids_by_popularity"] == [30, 10]
 
 
-if __name__ == "__main__":
-    unittest.main()
+def test_load_model_restores_checkpoint_state_through_protocol():
+    loader = TwoTowerModelLoader()
+    model = StubLoadableModel()
+    checkpoint = {
+        "config": TwoTowerConfig(top_k=5, device="cpu").__dict__,
+        "state_dict": {"weight": torch.tensor([3.0])},
+        "user_id_to_idx": {1: 0},
+        "item_id_to_idx": {10: 0, 30: 1},
+        "idx_to_user_id": [1],
+        "idx_to_item_id": [10, 30],
+        "train_history": [{"epoch": 1.0, "train_loss": 0.2, "valid_loss": 0.1}],
+        "seen_items_by_user": {1: [10, 30]},
+        "train_positive_item_ids_by_popularity": [30, 10],
+        "user_feature_metadata": FeatureMetadata.empty().to_dict(),
+        "item_feature_metadata": FeatureMetadata.empty().to_dict(),
+    }
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        checkpoint_path = Path(tmpdir) / "model.pth"
+        torch.save(checkpoint, checkpoint_path)
+        loader.load_model(model, checkpoint_path)
+
+    assert len(model.validate_calls) == 1
+    assert model.resolve_device_calls == ["cpu"]
+    assert model.applied_state is not None
+    assert model.applied_state.idx_to_user_id == [1]
+    assert model.applied_state.seen_items_by_user == {1: {10, 30}}
+    assert model.build_tower_calls == [(1, 2)]
+    assert torch.equal(model.loaded_state_dict["weight"], torch.tensor([3.0]))
+    assert model.to_calls == [torch.device("cpu")]
+    assert model.invalidate_calls == 1
+    assert model.eval_calls == 1
+
+
+def test_load_model_raises_when_checkpoint_is_missing():
+    loader = TwoTowerModelLoader()
+    with tempfile.TemporaryDirectory() as tmpdir:
+        with pytest.raises(FileNotFoundError):
+            loader.load_model(StubLoadableModel(), Path(tmpdir) / "missing.pth")

@@ -24,6 +24,7 @@ def build_labeled_interactions(
     y: TargetLike,
     split_name: str,
 ) -> pd.DataFrame:
+    """Validate X and y, combine into a labeled interactions DataFrame."""
     if not isinstance(X, pd.DataFrame):
         raise TypeError(
             f"{split_name} features must be a pandas DataFrame with "
@@ -49,6 +50,7 @@ def build_labeled_interactions(
 
 
 def build_id_mappings(train_df: pd.DataFrame) -> IdMappings:
+    """Build bidirectional user/item ID ↔ index mappings from training data."""
     idx_to_user_id = train_df["user_id"].astype(int).drop_duplicates().sort_values().tolist()
     idx_to_item_id = train_df["banner_id"].astype(int).drop_duplicates().sort_values().tolist()
     return IdMappings(
@@ -68,6 +70,7 @@ def filter_and_sample_interactions(
     apply_sampling: bool = False,
     sort_by_event_date: bool = False,
 ) -> pd.DataFrame:
+    """Filter to known user/item IDs, optionally balance-sample, and sort by date."""
     required_columns = {"user_id", "banner_id", "label"}
     missing_columns = required_columns.difference(interactions_df.columns)
     if missing_columns:
@@ -120,6 +123,7 @@ def prepare_retrieval_pairs(
     apply_sampling: bool,
     split_name: str,
 ) -> pd.DataFrame:
+    """Filter to positive interactions only; optionally sample to max_samples."""
     filtered_interactions = filter_and_sample_interactions(
         interactions_df,
         user_id_to_idx=user_id_to_idx,
@@ -143,6 +147,7 @@ def prepare_retrieval_pairs(
 
 
 def prepare_evaluation_inputs(X_test: pd.DataFrame) -> pd.DataFrame:
+    """Validate and normalize evaluation DataFrame to (event_date, user_id, banner_id, label) format."""
     if not isinstance(X_test, pd.DataFrame):
         raise TypeError(
             "Evaluation features must be a pandas DataFrame with "
@@ -186,6 +191,7 @@ def normalize_and_filter_interactions(
     config: TwoTowerConfig,
     apply_sampling: bool = False,
 ) -> pd.DataFrame:
+    """Normalize raw or pre-labeled interactions, then filter to known IDs."""
     if "label" in interactions_df.columns:
         prepared = interactions_df.copy()
         if "event_date" not in prepared.columns:
@@ -207,6 +213,7 @@ def build_evaluation_reference_data(
     train_df: pd.DataFrame | None,
     valid_df: pd.DataFrame | None,
 ) -> tuple[dict[int, set[int]], list[int]]:
+    """Return seen_items_by_user and popularity-ranked positive item IDs from train/valid data."""
     seen_items_by_user: dict[int, set[int]] = {}
     for dataframe in (train_df, valid_df):
         if dataframe is None or dataframe.empty:

@@ -26,7 +26,8 @@ Packaging-контракт текущей версии:
 
 - build backend: `setuptools`;
 - importable package в wheel ограничен `twotower`;
-- прикладная обвязка из `src/` не считается частью publishable library package.
+- прикладная обвязка из `src/` устанавливается через `pip install twotower[app]` и не входит в базовый пакет;
+- dev-зависимости (`pytest`, `ruff`, `mypy`) устанавливаются через `pip install twotower[dev]`.
 
 ## Структура библиотеки
 
@@ -321,7 +322,7 @@ PYTHONPATH=src ./.venv/bin/python -m uvicorn src.app.main:app --reload
 Запуск unit-тестов:
 
 ```bash
-./.venv/bin/python -m unittest discover -s tests -p 'test_*.py'
+./.venv/bin/python -m pytest
 ```
 
 Сейчас тестами покрыты:

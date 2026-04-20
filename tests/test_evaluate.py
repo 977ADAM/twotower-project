@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-import unittest
-
 import pandas as pd
+import pytest
 
 from twotower.config import TwoTowerConfig
 from twotower.evaluate import EvaluateInputs, TwoTowerEvaluator
@@ -26,20 +25,8 @@ class StubEvaluableModel:
         self.last_input = X_test
         return self.evaluate_inputs
 
-    def make_loader(
-        self,
-        *,
-        positive_df: pd.DataFrame,
-        interactions_df: pd.DataFrame,
-        shuffle: bool,
-    ) -> object:
-        self.make_loader_calls.append(
-            {
-                "positive_df": positive_df,
-                "interactions_df": interactions_df,
-                "shuffle": shuffle,
-            }
-        )
+    def make_loader(self, *, positive_df, interactions_df, shuffle) -> object:
+        self.make_loader_calls.append({"positive_df": positive_df, "interactions_df": interactions_df, "shuffle": shuffle})
         return {"loader": "ok"}
 
     def evaluate_loader(self, loader: object, prefix: str = "valid") -> dict[str, float]:
@@ -61,79 +48,77 @@ class StubEvaluableModel:
         return [1, 2]
 
 
-class TwoTowerEvaluatorTests(unittest.TestCase):
-    def setUp(self) -> None:
-        self.test_input_df = pd.DataFrame(
-            {
-                "event_date": pd.to_datetime(["2026-01-01", "2026-01-02", "2026-01-03"]),
-                "user_id": [1, 2, 3],
-                "banner_id": [10, 20, 30],
-                "label": [1.0, 0.0, 1.0],
-            }
-        )
-        self.prepared_test_df = self.test_input_df.iloc[[0, 1]].copy()
-        self.positive_test_df = self.prepared_test_df.iloc[[0]].copy()
-        self.evaluate_inputs = EvaluateInputs(
-            test_input_df=self.test_input_df,
-            prepared_test_df=self.prepared_test_df,
-            positive_test_df=self.positive_test_df,
-            input_row_count=3,
-            unknown_user_row_count=1,
-            unknown_item_row_count=0,
-        )
-        self.model = StubEvaluableModel(self.evaluate_inputs)
-        self.evaluator = TwoTowerEvaluator()
-
-    def test_evaluate_aggregates_metrics_and_uses_default_top_k(self):
-        metrics = self.evaluator.evaluate(self.model, self.test_input_df)
-
-        self.assertEqual(self.model.ensure_fitted_calls, 1)
-        self.assertEqual(len(self.model.make_loader_calls), 1)
-        self.assertFalse(self.model.make_loader_calls[0]["shuffle"])
-        self.assertEqual(self.model.evaluate_loader_calls, [({"loader": "ok"}, "test")])
-        self.assertEqual(self.model.recall_calls, [5, 10])
-        self.assertEqual(self.model.popularity_recall_calls, [5, 10])
-        self.assertEqual(metrics["test_loss"], 0.25)
-        self.assertEqual(metrics["recall_at_5"], 0.4)
-        self.assertEqual(metrics["recall_at_10"], 0.6)
-        self.assertEqual(metrics["recall_at_k"], 0.6)
-        self.assertEqual(metrics["popularity_recall_at_k"], 0.3)
-        self.assertEqual(metrics["test_input_rows"], 3.0)
-        self.assertEqual(metrics["test_rows_used"], 2.0)
-        self.assertEqual(metrics["test_rows_filtered"], 1.0)
-        self.assertEqual(metrics["test_unknown_user_rows"], 1.0)
-        self.assertEqual(metrics["test_unknown_item_rows"], 0.0)
-        self.assertEqual(metrics["test_positive_pairs_used_for_loss"], 1.0)
-        self.assertEqual(metrics["test_eval_user_count"], 2.0)
-
-    def test_evaluate_respects_top_k_override(self):
-        metrics = self.evaluator.evaluate(self.model, self.test_input_df, top_k=3)
-
-        self.assertEqual(self.model.recall_calls, [5, 3])
-        self.assertEqual(self.model.popularity_recall_calls, [5, 3])
-        self.assertEqual(metrics["recall_at_3"], 0.2)
-        self.assertEqual(metrics["recall_at_k"], 0.2)
-        self.assertEqual(metrics["popularity_recall_at_3"], 0.05)
-        self.assertEqual(metrics["popularity_recall_at_k"], 0.05)
-
-    def test_evaluate_raises_for_empty_prepared_test_set(self):
-        empty_model = StubEvaluableModel(
-            EvaluateInputs(
-                test_input_df=self.test_input_df.iloc[:0].copy(),
-                prepared_test_df=self.prepared_test_df.iloc[:0].copy(),
-                positive_test_df=self.positive_test_df.iloc[:0].copy(),
-                input_row_count=0,
-                unknown_user_row_count=0,
-                unknown_item_row_count=0,
-            )
-        )
-
-        with self.assertRaisesRegex(
-            RuntimeError,
-            "Evaluation dataset is empty after filtering out unknown users and items.",
-        ):
-            self.evaluator.evaluate(empty_model, self.test_input_df)
+@pytest.fixture
+def evaluator_setup():
+    test_input_df = pd.DataFrame({
+        "event_date": pd.to_datetime(["2026-01-01", "2026-01-02", "2026-01-03"]),
+        "user_id": [1, 2, 3],
+        "banner_id": [10, 20, 30],
+        "label": [1.0, 0.0, 1.0],
+    })
+    prepared_test_df = test_input_df.iloc[[0, 1]].copy()
+    positive_test_df = prepared_test_df.iloc[[0]].copy()
+    evaluate_inputs = EvaluateInputs(
+        test_input_df=test_input_df,
+        prepared_test_df=prepared_test_df,
+        positive_test_df=positive_test_df,
+        input_row_count=3,
+        unknown_user_row_count=1,
+        unknown_item_row_count=0,
+    )
+    return test_input_df, evaluate_inputs, TwoTowerEvaluator()
 
 
-if __name__ == "__main__":
-    unittest.main()
+def test_evaluate_aggregates_metrics_and_uses_default_top_k(evaluator_setup):
+    test_input_df, evaluate_inputs, evaluator = evaluator_setup
+    model = StubEvaluableModel(evaluate_inputs)
+
+    metrics = evaluator.evaluate(model, test_input_df)
+
+    assert model.ensure_fitted_calls == 1
+    assert len(model.make_loader_calls) == 1
+    assert not model.make_loader_calls[0]["shuffle"]
+    assert model.evaluate_loader_calls == [({"loader": "ok"}, "test")]
+    assert model.recall_calls == [5, 10]
+    assert model.popularity_recall_calls == [5, 10]
+    assert metrics["test_loss"] == 0.25
+    assert metrics["recall_at_5"] == 0.4
+    assert metrics["recall_at_10"] == 0.6
+    assert metrics["recall_at_k"] == 0.6
+    assert metrics["popularity_recall_at_k"] == 0.3
+    assert metrics["test_input_rows"] == 3.0
+    assert metrics["test_rows_used"] == 2.0
+    assert metrics["test_rows_filtered"] == 1.0
+    assert metrics["test_unknown_user_rows"] == 1.0
+    assert metrics["test_unknown_item_rows"] == 0.0
+    assert metrics["test_positive_pairs_used_for_loss"] == 1.0
+    assert metrics["test_eval_user_count"] == 2.0
+
+
+def test_evaluate_respects_top_k_override(evaluator_setup):
+    test_input_df, evaluate_inputs, evaluator = evaluator_setup
+    model = StubEvaluableModel(evaluate_inputs)
+
+    metrics = evaluator.evaluate(model, test_input_df, top_k=3)
+
+    assert model.recall_calls == [5, 3]
+    assert model.popularity_recall_calls == [5, 3]
+    assert metrics["recall_at_3"] == 0.2
+    assert metrics["recall_at_k"] == 0.2
+    assert metrics["popularity_recall_at_3"] == 0.05
+    assert metrics["popularity_recall_at_k"] == 0.05
+
+
+def test_evaluate_raises_for_empty_prepared_test_set(evaluator_setup):
+    test_input_df, evaluate_inputs, evaluator = evaluator_setup
+    empty_model = StubEvaluableModel(EvaluateInputs(
+        test_input_df=test_input_df.iloc[:0].copy(),
+        prepared_test_df=evaluate_inputs.prepared_test_df.iloc[:0].copy(),
+        positive_test_df=evaluate_inputs.positive_test_df.iloc[:0].copy(),
+        input_row_count=0,
+        unknown_user_row_count=0,
+        unknown_item_row_count=0,
+    ))
+
+    with pytest.raises(RuntimeError, match="Evaluation dataset is empty"):
+        evaluator.evaluate(empty_model, test_input_df)
