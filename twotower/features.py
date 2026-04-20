@@ -7,55 +7,21 @@ import torch
 
 UNKNOWN_TOKEN = "__unk__"
 
-USER_REQUIRED_COLUMNS = {
-    "user_id",
-    "age",
-    "gender",
-    "city_tier",
-    "device_os",
-    "platform",
-    "income_band",
-    "activity_segment",
-    "interest_1",
-    "interest_2",
-    "interest_3",
-    "is_premium",
-}
-ITEM_REQUIRED_COLUMNS = {
-    "banner_id",
-    "brand",
-    "category",
-    "subcategory",
-    "banner_format",
-    "campaign_goal",
-    "target_gender",
-    "target_age_min",
-    "target_age_max",
-}
 
-USER_SCALAR_FEATURE_NAMES = (
-    "age_bucket",
-    "gender",
-    "city_tier",
-    "device_os",
-    "platform",
-    "income_band",
-    "activity_segment",
-    "is_premium",
-)
-ITEM_SCALAR_FEATURE_NAMES = (
-    "brand",
-    "category",
-    "subcategory",
-    "banner_format",
-    "campaign_goal",
-    "target_gender",
-    "target_age_bucket",
-)
-USER_MULTI_FEATURE_SOURCES: dict[str, tuple[str, ...]] = {
-    "interest_ids": ("interest_1", "interest_2", "interest_3"),
-}
-ITEM_MULTI_FEATURE_SOURCES: dict[str, tuple[str, ...]] = {}
+@dataclass(slots=True, frozen=True)
+class MultiFeatureSpec:
+    """Describes a single multi-valued feature and its source columns."""
+
+    name: str
+    columns: tuple[str, ...]
+
+
+@dataclass(slots=True, frozen=True)
+class FeatureConfig:
+    """Declares which columns to encode as side features."""
+
+    scalar_features: tuple[str, ...] = ()
+    multi_features: tuple[MultiFeatureSpec, ...] = ()
 
 
 @dataclass(slots=True)
@@ -108,84 +74,44 @@ class FeatureTables:
     metadata: FeatureMetadata
 
 
-def build_user_feature_tables(users_df: pd.DataFrame, user_ids: list[int]) -> FeatureTables:
-    _validate_columns(users_df, USER_REQUIRED_COLUMNS, entity_name="users")
-    user_rows = _lookup_rows(users_df, "user_id", user_ids)
+def build_feature_tables(
+    df: pd.DataFrame,
+    entity_ids: list[int],
+    config: FeatureConfig,
+    id_column: str,
+) -> FeatureTables:
+    """Encode side features for the given entity ids according to `config`.
 
-    prepared_users = pd.DataFrame(index=user_rows.index)
-    prepared_users["age_bucket"] = _bucketize_age(user_rows["age"])
-    prepared_users["gender"] = _normalize_categorical_series(user_rows["gender"])
-    prepared_users["city_tier"] = _normalize_categorical_series(user_rows["city_tier"])
-    prepared_users["device_os"] = _normalize_categorical_series(user_rows["device_os"])
-    prepared_users["platform"] = _normalize_categorical_series(user_rows["platform"])
-    prepared_users["income_band"] = _normalize_categorical_series(user_rows["income_band"])
-    prepared_users["activity_segment"] = _normalize_categorical_series(user_rows["activity_segment"])
-    prepared_users["is_premium"] = _normalize_categorical_series(user_rows["is_premium"])
+    The caller is responsible for preparing all columns referenced in `config`
+    before calling this function. Column values are treated as categorical
+    strings; no numeric transforms are applied inside the library.
+    """
+    required_columns: set[str] = {id_column} | set(config.scalar_features)
+    for spec in config.multi_features:
+        required_columns.update(spec.columns)
+    _validate_columns(df, required_columns, entity_name=id_column)
 
-    scalar_features: dict[str, torch.Tensor] = {}
-    vocab_sizes: dict[str, int] = {}
-    for feature_name in USER_SCALAR_FEATURE_NAMES:
-        encoded_feature, vocab_size = _encode_scalar_feature(prepared_users[feature_name])
-        scalar_features[feature_name] = encoded_feature
-        vocab_sizes[feature_name] = vocab_size
-
-    interest_frame = user_rows.loc[:, USER_MULTI_FEATURE_SOURCES["interest_ids"]].copy()
-    encoded_interests, interest_vocab_size = _encode_multi_feature(interest_frame)
-
-    metadata = FeatureMetadata(
-        scalar_feature_names=USER_SCALAR_FEATURE_NAMES,
-        multi_feature_names=("interest_ids",),
-        multi_feature_widths={"interest_ids": len(USER_MULTI_FEATURE_SOURCES["interest_ids"])},
-        vocab_sizes={
-            **vocab_sizes,
-            "interest_ids": interest_vocab_size,
-        },
-    )
-    return FeatureTables(
-        scalar_features=scalar_features,
-        multi_features={"interest_ids": encoded_interests},
-        metadata=metadata,
-    )
-
-
-def build_item_feature_tables(items_df: pd.DataFrame, item_ids: list[int]) -> FeatureTables:
-    _validate_columns(items_df, ITEM_REQUIRED_COLUMNS, entity_name="items")
-    item_rows = _lookup_rows(items_df, "banner_id", item_ids)
-
-    prepared_items = pd.DataFrame(index=item_rows.index)
-    prepared_items["brand"] = _normalize_categorical_series(item_rows["brand"])
-    prepared_items["category"] = _normalize_categorical_series(item_rows["category"])
-    prepared_items["subcategory"] = _normalize_categorical_series(item_rows["subcategory"])
-    prepared_items["banner_format"] = _normalize_categorical_series(item_rows["banner_format"])
-    prepared_items["campaign_goal"] = _normalize_categorical_series(item_rows["campaign_goal"])
-    prepared_items["target_gender"] = _normalize_categorical_series(item_rows["target_gender"])
-    prepared_items["target_age_bucket"] = _bucketize_age(
-        (
-            pd.to_numeric(item_rows["target_age_min"], errors="coerce")
-            + pd.to_numeric(item_rows["target_age_max"], errors="coerce")
-        )
-        / 2.0
-    )
+    rows = _lookup_rows(df, id_column, entity_ids)
 
     scalar_features: dict[str, torch.Tensor] = {}
     vocab_sizes: dict[str, int] = {}
-    for feature_name in ITEM_SCALAR_FEATURE_NAMES:
-        encoded_feature, vocab_size = _encode_scalar_feature(prepared_items[feature_name])
-        scalar_features[feature_name] = encoded_feature
+    for feature_name in config.scalar_features:
+        encoded, vocab_size = _encode_scalar_feature(rows[feature_name])
+        scalar_features[feature_name] = encoded
         vocab_sizes[feature_name] = vocab_size
 
     multi_features: dict[str, torch.Tensor] = {}
     multi_feature_widths: dict[str, int] = {}
-    for feature_key, source_columns in ITEM_MULTI_FEATURE_SOURCES.items():
-        multi_frame = item_rows.loc[:, list(source_columns)].copy()
-        encoded_multi, multi_vocab_size = _encode_multi_feature(multi_frame)
-        multi_features[feature_key] = encoded_multi
-        vocab_sizes[feature_key] = multi_vocab_size
-        multi_feature_widths[feature_key] = len(source_columns)
+    for spec in config.multi_features:
+        multi_frame = rows.loc[:, list(spec.columns)].copy()
+        encoded, vocab_size = _encode_multi_feature(multi_frame)
+        multi_features[spec.name] = encoded
+        vocab_sizes[spec.name] = vocab_size
+        multi_feature_widths[spec.name] = len(spec.columns)
 
     metadata = FeatureMetadata(
-        scalar_feature_names=ITEM_SCALAR_FEATURE_NAMES,
-        multi_feature_names=tuple(ITEM_MULTI_FEATURE_SOURCES.keys()),
+        scalar_feature_names=config.scalar_features,
+        multi_feature_names=tuple(spec.name for spec in config.multi_features),
         multi_feature_widths=multi_feature_widths,
         vocab_sizes=vocab_sizes,
     )
@@ -208,16 +134,6 @@ def _lookup_rows(dataframe: pd.DataFrame, id_column: str, entity_ids: list[int])
     deduplicated = dataframe.drop_duplicates(subset=[id_column], keep="last")
     indexed = deduplicated.set_index(id_column)
     return indexed.reindex(entity_ids)
-
-
-def _bucketize_age(values: pd.Series) -> pd.Series:
-    numeric_values = pd.to_numeric(values, errors="coerce")
-    bucketed = pd.cut(
-        numeric_values,
-        bins=[-1, 24, 34, 44, 54, float("inf")],
-        labels=["18_24", "25_34", "35_44", "45_54", "55_plus"],
-    )
-    return _normalize_categorical_series(pd.Series(bucketed, index=values.index))
 
 
 def _normalize_categorical_series(values: pd.Series) -> pd.Series:

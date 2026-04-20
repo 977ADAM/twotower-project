@@ -42,16 +42,16 @@ Packaging-контракт текущей версии:
 - `save_model.py` — сохранение чекпоинта.
 - `load_model.py` — восстановление модели из чекпоинта.
 - `data.py` — нормализация и temporal split interaction-данных.
-- `features.py` — подготовка пользовательских и item side-features.
+- `features.py` — кодирование side-features: `FeatureConfig`, `MultiFeatureSpec`, `build_feature_tables`. Не содержит хардкода колонок; схема передаётся через `FeatureConfig`.
 - `modules/` — нейросетевые tower-компоненты: `TwoTowerBase`, `UserTower`, `ItemTower`. Оба тауэра поддерживают scalar и multi-valued side features.
 
 Публичный импорт:
 
 ```python
-from twotower import TwoTower, TwoTowerConfig
+from twotower import TwoTower, TwoTowerConfig, FeatureConfig, MultiFeatureSpec
 ```
 
-Package-level public exports сейчас намеренно ограничены только `TwoTower` и `TwoTowerConfig`.
+Package-level public exports: `TwoTower`, `TwoTowerConfig`, `FeatureConfig`, `MultiFeatureSpec`.
 `TwoTowerBase` остается внутренней реализационной деталью и не считается частью стабильного внешнего API.
 
 ## Public API
@@ -89,8 +89,10 @@ history = model.fit(
     y_train=train_df["label"],
     X_valid=valid_df[["user_id", "banner_id"]],
     y_valid=valid_df["label"],
-    users_df=users_df,
-    items_df=items_df,
+    users_df=users_df,           # необязательно
+    items_df=items_df,           # необязательно
+    user_feature_config=user_feature_config,  # необязательно
+    item_feature_config=item_feature_config,  # необязательно
 )
 ```
 
@@ -98,7 +100,8 @@ history = model.fit(
 
 - `X_train` и `X_valid` должны содержать `user_id` и `banner_id`.
 - `y_train` и `y_valid` должны содержать бинарные метки.
-- `users_df` и `items_df` необязательны, но должны передаваться вместе, если используются side-features.
+- `users_df`, `items_df`, `user_feature_config`, `item_feature_config` необязательны, но должны передаваться все четыре вместе, если используются side-features.
+- Колонки, указанные в `FeatureConfig`, должны быть уже подготовлены вызывающим кодом (библиотека выполняет только кодирование в словарь, числовые преобразования — на стороне приложения).
 
 Результат:
 
@@ -231,13 +234,29 @@ loaded_model = TwoTower().load_model("artifacts/twotower_model.pth")
 ```python
 import pandas as pd
 
-from twotower import TwoTower, TwoTowerConfig
+from twotower import TwoTower, TwoTowerConfig, FeatureConfig, MultiFeatureSpec
 
 users_df = pd.read_csv("data/raw/users.csv")
 items_df = pd.read_csv("data/raw/banners.csv")
 train_df = pd.read_csv("data/train.csv")
 valid_df = pd.read_csv("data/valid.csv")
 test_df = pd.read_csv("data/test.csv")
+
+# Числовые преобразования — на стороне приложения, до передачи в модель
+users_df["age_bucket"] = pd.cut(
+    users_df["age"], bins=[-1, 24, 34, 44, 54, float("inf")],
+    labels=["18_24", "25_34", "35_44", "45_54", "55_plus"],
+).astype(str)
+
+user_feature_config = FeatureConfig(
+    scalar_features=("age_bucket", "gender", "city_tier"),
+    multi_features=(
+        MultiFeatureSpec("interest_ids", columns=("interest_1", "interest_2", "interest_3")),
+    ),
+)
+item_feature_config = FeatureConfig(
+    scalar_features=("brand", "category", "subcategory"),
+)
 
 model = TwoTower(
     TwoTowerConfig(
@@ -256,6 +275,8 @@ history = model.fit(
     y_valid=valid_df["label"],
     users_df=users_df,
     items_df=items_df,
+    user_feature_config=user_feature_config,
+    item_feature_config=item_feature_config,
 )
 
 metrics = model.evaluate(test_df, top_k=50)

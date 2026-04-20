@@ -14,10 +14,10 @@ from torch.utils.data import DataLoader
 from twotower.config import TwoTowerConfig
 from twotower.evaluate import EvaluateInputs, TwoTowerEvaluator
 from twotower.features import (
+    FeatureConfig,
     FeatureMetadata,
     FeatureTables,
-    build_item_feature_tables,
-    build_user_feature_tables,
+    build_feature_tables,
 )
 from twotower.modules import ItemTower, UserTower
 from twotower.fit import FitInputs, TwoTowerTrainer, build_pairwise_loader, compute_bpr_loss
@@ -77,11 +77,15 @@ class TwoTower(TwoTowerBase):
         y_valid: TargetLike,
         users_df: pd.DataFrame | None = None,
         items_df: pd.DataFrame | None = None,
+        user_feature_config: FeatureConfig | None = None,
+        item_feature_config: FeatureConfig | None = None,
     ) -> list[dict[str, float]]:
         """Fit the model on interaction pairs.
 
         `X_train` and `X_valid` must contain `user_id` and `banner_id` columns.
         `y_train` and `y_valid` must contain the corresponding binary labels.
+        Pass `users_df`, `items_df`, `user_feature_config`, and
+        `item_feature_config` together to enable side features.
         """
         prepared_train_df, prepared_valid_df, reference_train_df, reference_valid_df = self._prepare_fit_inputs(
             X_train=X_train,
@@ -92,7 +96,12 @@ class TwoTower(TwoTowerBase):
         self.train_df = reference_train_df
         self.valid_df = reference_valid_df
         self._refresh_evaluation_reference_data()
-        self._prepare_side_feature_tables(users_df=users_df, items_df=items_df)
+        self._prepare_side_feature_tables(
+            users_df=users_df,
+            items_df=items_df,
+            user_feature_config=user_feature_config,
+            item_feature_config=item_feature_config,
+        )
 
         self.invalidate_item_embedding_cache()
 
@@ -484,6 +493,8 @@ class TwoTower(TwoTowerBase):
         *,
         users_df: pd.DataFrame | None,
         items_df: pd.DataFrame | None,
+        user_feature_config: FeatureConfig | None,
+        item_feature_config: FeatureConfig | None,
     ) -> None:
         if users_df is None and items_df is None:
             self._user_feature_tables = None
@@ -495,13 +506,22 @@ class TwoTower(TwoTowerBase):
         if users_df is None or items_df is None:
             raise ValueError("`users_df` and `items_df` must be provided together when using side features.")
 
-        self._user_feature_tables = build_user_feature_tables(
-            users_df=users_df,
-            user_ids=self.idx_to_user_id,
+        if user_feature_config is None or item_feature_config is None:
+            raise ValueError(
+                "`user_feature_config` and `item_feature_config` must be provided together with `users_df` and `items_df`."
+            )
+
+        self._user_feature_tables = build_feature_tables(
+            df=users_df,
+            entity_ids=self.idx_to_user_id,
+            config=user_feature_config,
+            id_column="user_id",
         )
-        self._item_feature_tables = build_item_feature_tables(
-            items_df=items_df,
-            item_ids=self.idx_to_item_id,
+        self._item_feature_tables = build_feature_tables(
+            df=items_df,
+            entity_ids=self.idx_to_item_id,
+            config=item_feature_config,
+            id_column="banner_id",
         )
         self._user_feature_metadata = self._user_feature_tables.metadata
         self._item_feature_metadata = self._item_feature_tables.metadata

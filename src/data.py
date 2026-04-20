@@ -4,6 +4,17 @@ from config import Config
 from twotower.data import prepare_interactions as prepare_twotower_interactions
 from twotower.data import split_interactions as split_twotower_interactions
 
+
+def bucketize_age(values: pd.Series) -> pd.Series:
+    """Convert a numeric age series into string bucket labels."""
+    numeric = pd.to_numeric(values, errors="coerce")
+    bucketed = pd.cut(
+        numeric,
+        bins=[-1, 24, 34, 44, 54, float("inf")],
+        labels=["18_24", "25_34", "35_44", "45_54", "55_plus"],
+    )
+    return bucketed.astype(str).fillna("__unk__")
+
 console = Console()
 
 def load_data(config: Config):
