@@ -1,5 +1,6 @@
-from twotower.core import TwoTower
-from twotower.config import TwoTowerConfig
-from .modules.twotower_base import TwoTowerBase
+"""Top-level public API for the twotower package."""
 
-__all__ = ["TwoTower", "TwoTowerConfig", TwoTowerBase]
+from .config import TwoTowerConfig
+from .core import TwoTower
+
+__all__ = ["TwoTower", "TwoTowerConfig"]
