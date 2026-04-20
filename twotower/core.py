@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import asdict
 from os import PathLike
 from pathlib import Path
 from typing import Sequence, TypeAlias
@@ -14,6 +13,7 @@ from torch.utils.data import DataLoader
 
 from twotower.config import TwoTowerConfig
 from twotower.data import normalize_interactions
+from twotower.evaluate import EvaluateInputs, TwoTowerEvaluator
 from twotower.features import (
     FeatureMetadata,
     FeatureTables,
@@ -21,8 +21,10 @@ from twotower.features import (
     build_user_feature_tables,
 )
 from twotower.fit import FitInputs, TwoTowerTrainer, build_pairwise_loader, compute_bpr_loss
+from twotower.load_model import LoadedCheckpointState, TwoTowerModelLoader
 from twotower.modules import TwoTowerBase
 from twotower.predict import TwoTowerPredictor
+from twotower.save_model import TwoTowerModelSaver
 
 console = Console()
 
@@ -51,7 +53,11 @@ class TwoTower(TwoTowerBase):
         self._item_feature_tables: FeatureTables | None = None
         self._user_feature_metadata: FeatureMetadata = FeatureMetadata.empty()
         self._item_feature_metadata: FeatureMetadata = FeatureMetadata.empty()
+        self._evaluator = TwoTowerEvaluator()
         self._predictor = TwoTowerPredictor()
+        self._model_saver = TwoTowerModelSaver()
+        self._model_loader = TwoTowerModelLoader()
+        self._backend = _TwoTowerBackend(self)
 
     def fit(
         self,
@@ -115,7 +121,7 @@ class TwoTower(TwoTowerBase):
         """
         self._ensure_fitted()
         return self._predictor.predict(
-            self,
+            self._backend,
             user_ids=user_ids,
             item_ids=item_ids,
             top_k=top_k,
@@ -134,122 +140,23 @@ class TwoTower(TwoTowerBase):
         column is present, labels are derived from it. If a `label` column is
         present, it is used directly.
         """
-        self._ensure_fitted()
-        test_input_df = self._prepare_evaluation_inputs(X_test)
-        input_row_count = len(test_input_df)
-        unknown_user_row_count = int((~test_input_df["user_id"].isin(self.user_id_to_idx)).sum())
-        unknown_item_row_count = int((~test_input_df["banner_id"].isin(self.item_id_to_idx)).sum())
-        prepared_test_df = self._prepare_interactions(test_input_df, apply_sampling=False)
-        if prepared_test_df.empty:
-            raise RuntimeError(
-                "Evaluation dataset is empty after filtering out unknown users and items."
-            )
-
-        positive_test_df = self._prepare_retrieval_pairs(
-            prepared_test_df,
-            apply_sampling=False,
-            split_name="test",
-        )
-        metrics = self._evaluate_loader(
-            self._make_loader(
-                positive_df=positive_test_df,
-                interactions_df=prepared_test_df,
-                shuffle=False,
-            ),
-            prefix="test",
-        )
-        eval_top_ks = self._resolve_eval_top_ks(top_k)
-        for eval_top_k in eval_top_ks:
-            metrics[f"recall_at_{eval_top_k}"] = self._recall_at_k(prepared_test_df, eval_top_k)
-            metrics[f"popularity_recall_at_{eval_top_k}"] = self._popularity_recall_at_k(
-                prepared_test_df,
-                eval_top_k,
-            )
-        selected_top_k = top_k or self.config.top_k
-        metrics["recall_at_k"] = metrics[f"recall_at_{selected_top_k}"]
-        metrics["popularity_recall_at_k"] = metrics[f"popularity_recall_at_{selected_top_k}"]
-        metrics["test_input_rows"] = float(input_row_count)
-        metrics["test_rows_used"] = float(len(prepared_test_df))
-        metrics["test_rows_filtered"] = float(input_row_count - len(prepared_test_df))
-        metrics["test_unknown_user_rows"] = float(unknown_user_row_count)
-        metrics["test_unknown_item_rows"] = float(unknown_item_row_count)
-        metrics["test_positive_rate"] = float(prepared_test_df["label"].mean())
-        metrics["test_positive_pairs_used_for_loss"] = float(len(positive_test_df))
-        metrics["test_eval_user_count"] = float(len(self._get_eval_user_ids(prepared_test_df)))
-        metrics["test_rows_filtered_ratio"] = (
-            float(input_row_count - len(prepared_test_df)) / max(float(input_row_count), 1.0)
+        metrics = self._evaluator.evaluate(
+            self._backend,
+            X_test,
+            top_k=top_k,
         )
         console.print(metrics)
         return metrics
 
     def save_model(self, path: str | PathLike[str]) -> None:
         """Save the fitted model checkpoint to disk."""
-        self._ensure_fitted()
-        target_path = self._resolve_checkpoint_path(path)
-        target_path.parent.mkdir(parents=True, exist_ok=True)
-
-        checkpoint = {
-            "config": asdict(self.config),
-            "state_dict": self.state_dict(),
-            "user_id_to_idx": self.user_id_to_idx,
-            "item_id_to_idx": self.item_id_to_idx,
-            "idx_to_user_id": self.idx_to_user_id,
-            "idx_to_item_id": self.idx_to_item_id,
-            "train_history": self.train_history,
-            "seen_items_by_user": {
-                int(user_id): sorted(int(item_id) for item_id in item_ids)
-                for user_id, item_ids in self._seen_items_by_user.items()
-            },
-            "train_positive_item_ids_by_popularity": self._train_positive_item_ids_by_popularity,
-            "user_feature_metadata": self._user_feature_metadata.to_dict(),
-            "item_feature_metadata": self._item_feature_metadata.to_dict(),
-        }
-        torch.save(checkpoint, target_path)
+        target_path = self._model_saver.save_model(self._backend, path)
         console.print(f"Model saved to {target_path}")
 
     def load_model(self, path: str | PathLike[str]) -> "TwoTower":
         """Load a model checkpoint from disk and return `self`."""
-        checkpoint_path = self._resolve_checkpoint_path(path)
-        if not checkpoint_path.exists():
-            raise FileNotFoundError(f"Model checkpoint was not found: {checkpoint_path}")
-
-        checkpoint = torch.load(checkpoint_path, map_location="cpu")
-        self._validate_checkpoint(checkpoint, checkpoint_path)
-        self.config = TwoTowerConfig(**checkpoint["config"])
-        self.device = self._resolve_device(self.config.device)
-        self.user_id_to_idx = checkpoint["user_id_to_idx"]
-        self.item_id_to_idx = checkpoint["item_id_to_idx"]
-        self.idx_to_user_id = checkpoint["idx_to_user_id"]
-        self.idx_to_item_id = checkpoint["idx_to_item_id"]
-        self.train_history = checkpoint.get("train_history", [])
-        self.train_df = None
-        self.valid_df = None
-        self._seen_items_by_user = {
-            int(user_id): {int(item_id) for item_id in item_ids}
-            for user_id, item_ids in checkpoint.get("seen_items_by_user", {}).items()
-        }
-        self._train_positive_item_ids_by_popularity = [
-            int(item_id)
-            for item_id in checkpoint.get("train_positive_item_ids_by_popularity", [])
-        ]
-        self._user_feature_tables = None
-        self._item_feature_tables = None
-        self._user_feature_metadata = FeatureMetadata.from_dict(checkpoint.get("user_feature_metadata"))
-        self._item_feature_metadata = FeatureMetadata.from_dict(checkpoint.get("item_feature_metadata"))
-
-        self.build_towers(len(self.idx_to_user_id), len(self.idx_to_item_id))
-        self.load_state_dict(checkpoint["state_dict"])
-        self.to(self.device)
-        self._invalidate_item_embedding_cache()
-        self.eval()
+        self._model_loader.load_model(self._backend, path)
         return self
-
-    def _resolve_checkpoint_path(self, path: str | PathLike[str]) -> Path:
-        """Normalize a checkpoint path."""
-        checkpoint_path = Path(path)
-        if not checkpoint_path.name:
-            raise ValueError("Checkpoint path must point to a file.")
-        return checkpoint_path
 
     def _validate_checkpoint(self, checkpoint: object, checkpoint_path: Path) -> None:
         """Validate checkpoint structure before loading model state."""
@@ -578,11 +485,11 @@ class TwoTower(TwoTowerBase):
         positive_df = evaluation_df[evaluation_df["label"] == 1.0]
         recalls = []
         seen_items_by_user = self._build_seen_items_by_user()
-        item_embeddings, item_ids = self.get_candidate_item_embeddings(list(self.idx_to_item_id))
+        item_embeddings, item_ids = self._backend.get_candidate_item_embeddings(list(self.idx_to_item_id))
         for user_id in candidate_user_ids:
             actual_items = set(positive_df.loc[positive_df["user_id"] == user_id, "banner_id"].astype(int))
             predicted_items = self._predictor.predict_top_k_item_ids_for_user(
-                self,
+                self._backend,
                 user_id=user_id,
                 item_embeddings=item_embeddings,
                 item_ids=item_ids,
@@ -658,10 +565,6 @@ class TwoTower(TwoTowerBase):
         self._refresh_evaluation_reference_data()
         return self._seen_items_by_user
 
-    def get_seen_items_by_user(self) -> dict[int, set[int]]:
-        """Expose seen items for the prediction module."""
-        return self._build_seen_items_by_user()
-
     def _build_train_positive_item_ranking(self) -> list[int]:
         if self._train_positive_item_ids_by_popularity:
             return self._train_positive_item_ids_by_popularity
@@ -684,34 +587,6 @@ class TwoTower(TwoTowerBase):
             self._cached_all_item_ids = item_ids
         return self._cached_all_item_embeddings, self._cached_all_item_ids
 
-    def get_candidate_item_embeddings(
-        self,
-        item_ids: list[int],
-    ) -> tuple[torch.Tensor, list[int]]:
-        all_item_embeddings, all_item_ids = self._build_candidate_item_embeddings()
-        if item_ids == all_item_ids:
-            return all_item_embeddings, all_item_ids
-
-        candidate_positions = [
-            self.item_id_to_idx[item_id]
-            for item_id in item_ids
-            if item_id in self.item_id_to_idx
-        ]
-        if not candidate_positions:
-            return all_item_embeddings[:0], []
-
-        return all_item_embeddings[candidate_positions], item_ids
-
-    def get_user_embedding(self, user_id: int) -> torch.Tensor:
-        """Expose user embeddings for the prediction module."""
-        if user_id not in self.user_id_to_idx:
-            raise KeyError(f"Unknown user_id: {user_id}")
-
-        user_index = torch.tensor([self.user_id_to_idx[user_id]], dtype=torch.long, device=self.device)
-        with torch.no_grad():
-            user_embedding = self.user_tower(user_index)
-        return user_embedding.squeeze(0)
-
     def _invalidate_item_embedding_cache(self) -> None:
         self._cached_all_item_embeddings = None
         self._cached_all_item_ids = None
@@ -723,3 +598,170 @@ class TwoTower(TwoTowerBase):
         if device == "cuda" and not torch.cuda.is_available():
             return torch.device("cpu")
         return torch.device(device)
+
+
+class _TwoTowerBackend:
+    """Compact backend adapter used by the service modules."""
+
+    def __init__(self, owner: TwoTower):
+        self.owner = owner
+
+    @property
+    def config(self) -> TwoTowerConfig:
+        return self.owner.config
+
+    @property
+    def user_id_to_idx(self) -> dict[int, int]:
+        return self.owner.user_id_to_idx
+
+    @property
+    def item_id_to_idx(self) -> dict[int, int]:
+        return self.owner.item_id_to_idx
+
+    @property
+    def idx_to_user_id(self) -> list[int]:
+        return self.owner.idx_to_user_id
+
+    @property
+    def idx_to_item_id(self) -> list[int]:
+        return self.owner.idx_to_item_id
+
+    @property
+    def train_history(self) -> list[dict[str, float]]:
+        return self.owner.train_history
+
+    def ensure_fitted(self) -> None:
+        self.owner._ensure_fitted()
+
+    def build_evaluate_inputs(self, X_test: pd.DataFrame) -> EvaluateInputs:
+        test_input_df = self.owner._prepare_evaluation_inputs(X_test)
+        prepared_test_df = self.owner._prepare_interactions(test_input_df, apply_sampling=False)
+        positive_test_df = (
+            prepared_test_df.copy()
+            if prepared_test_df.empty
+            else self.owner._prepare_retrieval_pairs(
+                prepared_test_df,
+                apply_sampling=False,
+                split_name="test",
+            )
+        )
+        return EvaluateInputs(
+            test_input_df=test_input_df,
+            prepared_test_df=prepared_test_df,
+            positive_test_df=positive_test_df,
+            input_row_count=len(test_input_df),
+            unknown_user_row_count=int((~test_input_df["user_id"].isin(self.owner.user_id_to_idx)).sum()),
+            unknown_item_row_count=int((~test_input_df["banner_id"].isin(self.owner.item_id_to_idx)).sum()),
+        )
+
+    def make_loader(
+        self,
+        *,
+        positive_df: pd.DataFrame,
+        interactions_df: pd.DataFrame,
+        shuffle: bool,
+    ) -> DataLoader:
+        return self.owner._make_loader(
+            positive_df=positive_df,
+            interactions_df=interactions_df,
+            shuffle=shuffle,
+        )
+
+    def evaluate_loader(self, loader: DataLoader, prefix: str = "valid") -> dict[str, float]:
+        return self.owner._evaluate_loader(loader, prefix=prefix)
+
+    def resolve_eval_top_ks(self, top_k: int | None) -> list[int]:
+        return self.owner._resolve_eval_top_ks(top_k)
+
+    def recall_at_k(self, evaluation_df: pd.DataFrame, top_k: int) -> float:
+        return self.owner._recall_at_k(evaluation_df, top_k)
+
+    def popularity_recall_at_k(self, evaluation_df: pd.DataFrame, top_k: int) -> float:
+        return self.owner._popularity_recall_at_k(evaluation_df, top_k)
+
+    def get_eval_user_ids(self, evaluation_df: pd.DataFrame) -> list[int]:
+        return self.owner._get_eval_user_ids(evaluation_df)
+
+    def eval(self):
+        return self.owner.eval()
+
+    def get_candidate_item_embeddings(
+        self,
+        item_ids: list[int],
+    ) -> tuple[torch.Tensor, list[int]]:
+        all_item_embeddings, all_item_ids = self.owner._build_candidate_item_embeddings()
+        if item_ids == all_item_ids:
+            return all_item_embeddings, all_item_ids
+
+        candidate_positions = [
+            self.owner.item_id_to_idx[item_id]
+            for item_id in item_ids
+            if item_id in self.owner.item_id_to_idx
+        ]
+        if not candidate_positions:
+            return all_item_embeddings[:0], []
+
+        return all_item_embeddings[candidate_positions], item_ids
+
+    def get_user_embedding(self, user_id: int) -> torch.Tensor:
+        if user_id not in self.owner.user_id_to_idx:
+            raise KeyError(f"Unknown user_id: {user_id}")
+
+        user_index = torch.tensor(
+            [self.owner.user_id_to_idx[user_id]],
+            dtype=torch.long,
+            device=self.owner.device,
+        )
+        with torch.no_grad():
+            user_embedding = self.owner.user_tower(user_index)
+        return user_embedding.squeeze(0)
+
+    def get_seen_items_by_user(self) -> dict[int, set[int]]:
+        return self.owner._build_seen_items_by_user()
+
+    def state_dict(self) -> dict[str, torch.Tensor]:
+        return self.owner.state_dict()
+
+    def get_train_positive_item_ranking(self) -> list[int]:
+        return self.owner._build_train_positive_item_ranking()
+
+    def get_user_feature_metadata_dict(self) -> dict[str, object]:
+        return self.owner._user_feature_metadata.to_dict()
+
+    def get_item_feature_metadata_dict(self) -> dict[str, object]:
+        return self.owner._item_feature_metadata.to_dict()
+
+    def validate_checkpoint(self, checkpoint: object, checkpoint_path: Path) -> None:
+        self.owner._validate_checkpoint(checkpoint, checkpoint_path)
+
+    def resolve_device(self, device: str | None) -> torch.device:
+        return self.owner._resolve_device(device)
+
+    def apply_loaded_checkpoint_state(self, state: LoadedCheckpointState) -> None:
+        self.owner.config = state.config
+        self.owner.device = state.device
+        self.owner.user_id_to_idx = state.user_id_to_idx
+        self.owner.item_id_to_idx = state.item_id_to_idx
+        self.owner.idx_to_user_id = state.idx_to_user_id
+        self.owner.idx_to_item_id = state.idx_to_item_id
+        self.owner.train_history = state.train_history
+        self.owner.train_df = None
+        self.owner.valid_df = None
+        self.owner._seen_items_by_user = state.seen_items_by_user
+        self.owner._train_positive_item_ids_by_popularity = state.train_positive_item_ids_by_popularity
+        self.owner._user_feature_tables = None
+        self.owner._item_feature_tables = None
+        self.owner._user_feature_metadata = state.user_feature_metadata
+        self.owner._item_feature_metadata = state.item_feature_metadata
+
+    def build_towers(self, num_users: int, num_items: int) -> None:
+        self.owner.build_towers(num_users, num_items)
+
+    def load_state_dict(self, state_dict: dict[str, torch.Tensor]):
+        self.owner.load_state_dict(state_dict)
+
+    def to(self, device: torch.device):
+        return self.owner.to(device)
+
+    def invalidate_item_embedding_cache(self) -> None:
+        self.owner._invalidate_item_embedding_cache()
