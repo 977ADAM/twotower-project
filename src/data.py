@@ -1,6 +1,6 @@
 import pandas as pd
 from rich.console import Console
-from src.сonfig import Config
+from config import Config
 from twotower.data import prepare_interactions as prepare_twotower_interactions
 from twotower.data import split_interactions as split_twotower_interactions
 

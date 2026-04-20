@@ -1,7 +1,7 @@
 from rich.console import Console
 
 from src.data import load_training_frames
-from src.сonfig import Config
+from config import Config
 from twotower import TwoTower, TwoTowerConfig
 
 console = Console()
