@@ -32,8 +32,9 @@ Packaging-контракт текущей версии:
 
 Основные файлы в `twotower/`:
 
-- `core.py` — фасад `TwoTower` и состояние модели.
+- `core.py` — фасад `TwoTower`, оркестрация; не содержит логику подготовки данных.
 - `config.py` — `TwoTowerConfig`.
+- `preprocessing.py` — чистые функции подготовки данных: валидация, построение маппингов, фильтрация, сэмплинг.
 - `fit.py` — обучение и pairwise negative sampling.
 - `predict.py` — генерация top-k рекомендаций.
 - `evaluate.py` — расчет loss и retrieval-метрик.
