@@ -19,6 +19,7 @@ from twotower.features import (
     build_item_feature_tables,
     build_user_feature_tables,
 )
+from twotower.modules import ItemTower, UserTower
 from twotower.fit import FitInputs, TwoTowerTrainer, build_pairwise_loader, compute_bpr_loss
 from twotower.load_model import LoadedCheckpointState, TwoTowerModelLoader
 from twotower.modules import TwoTowerBase
@@ -345,6 +346,20 @@ class TwoTower(TwoTowerBase):
             recalls.append(len(actual_items & set(predicted_items)) / len(actual_items))
 
         return float(sum(recalls) / len(recalls)) if recalls else 0.0
+
+    def build_towers(self, num_users: int, num_items: int) -> None:
+        self.user_tower = UserTower(
+            num_users,
+            self.config,
+            feature_tables=self._user_feature_tables,
+            feature_metadata=self._user_feature_metadata,
+        )
+        self.item_tower = ItemTower(
+            num_items,
+            self.config,
+            feature_tables=self._item_feature_tables,
+            feature_metadata=self._item_feature_metadata,
+        )
 
     def ensure_fitted(self) -> None:
         if self.user_tower is None or self.item_tower is None:

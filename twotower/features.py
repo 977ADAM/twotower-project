@@ -52,9 +52,10 @@ ITEM_SCALAR_FEATURE_NAMES = (
     "target_gender",
     "target_age_bucket",
 )
-USER_MULTI_FEATURE_SOURCES = {
+USER_MULTI_FEATURE_SOURCES: dict[str, tuple[str, ...]] = {
     "interest_ids": ("interest_1", "interest_2", "interest_3"),
 }
+ITEM_MULTI_FEATURE_SOURCES: dict[str, tuple[str, ...]] = {}
 
 
 @dataclass(slots=True)
@@ -173,15 +174,24 @@ def build_item_feature_tables(items_df: pd.DataFrame, item_ids: list[int]) -> Fe
         scalar_features[feature_name] = encoded_feature
         vocab_sizes[feature_name] = vocab_size
 
+    multi_features: dict[str, torch.Tensor] = {}
+    multi_feature_widths: dict[str, int] = {}
+    for feature_key, source_columns in ITEM_MULTI_FEATURE_SOURCES.items():
+        multi_frame = item_rows.loc[:, list(source_columns)].copy()
+        encoded_multi, multi_vocab_size = _encode_multi_feature(multi_frame)
+        multi_features[feature_key] = encoded_multi
+        vocab_sizes[feature_key] = multi_vocab_size
+        multi_feature_widths[feature_key] = len(source_columns)
+
     metadata = FeatureMetadata(
         scalar_feature_names=ITEM_SCALAR_FEATURE_NAMES,
-        multi_feature_names=(),
-        multi_feature_widths={},
+        multi_feature_names=tuple(ITEM_MULTI_FEATURE_SOURCES.keys()),
+        multi_feature_widths=multi_feature_widths,
         vocab_sizes=vocab_sizes,
     )
     return FeatureTables(
         scalar_features=scalar_features,
-        multi_features={},
+        multi_features=multi_features,
         metadata=metadata,
     )
 

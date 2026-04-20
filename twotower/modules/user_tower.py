@@ -9,14 +9,14 @@ from twotower.features import FeatureMetadata, FeatureTables
 class UserTower(nn.Module):
     def __init__(
         self,
-        num_emb: int,
+        num_embeddings: int,
         config: TwoTowerConfig,
         feature_tables: FeatureTables | None = None,
         feature_metadata: FeatureMetadata | None = None,
     ):
         super().__init__()
         self.feature_metadata = feature_metadata or FeatureMetadata.empty()
-        self.emb = nn.Embedding(num_embeddings=num_emb, embedding_dim=config.user_embedding_dim)
+        self.embedding = nn.Embedding(num_embeddings=num_embeddings, embedding_dim=config.user_embedding_dim)
         self.scalar_feature_embeddings = nn.ModuleDict(
             {
                 feature_name: nn.Embedding(
@@ -35,7 +35,7 @@ class UserTower(nn.Module):
                 for feature_name in self.feature_metadata.multi_feature_names
             }
         )
-        self._register_feature_buffers(num_emb, feature_tables)
+        self._register_feature_buffers(num_embeddings, feature_tables)
 
         total_input_dim = config.user_embedding_dim
         total_input_dim += len(self.feature_metadata.scalar_feature_names) * config.side_feature_embedding_dim
@@ -45,7 +45,7 @@ class UserTower(nn.Module):
         self.norm = nn.LayerNorm(config.hidden_dim)
 
     def forward(self, user_input: torch.Tensor) -> torch.Tensor:
-        feature_parts = [self.emb(user_input)]
+        feature_parts = [self.embedding(user_input)]
 
         for feature_name in self.feature_metadata.scalar_feature_names:
             feature_indices = getattr(self, f"scalar_feature_{feature_name}").index_select(0, user_input)

@@ -24,18 +24,6 @@ def compute_bpr_loss(
     return -criterion(positive_scores - negative_scores).mean()
 
 
-def compute_in_batch_retrieval_loss(
-    logits: torch.Tensor,
-    criterion: nn.Module,
-    symmetric: bool,
-) -> torch.Tensor:
-    """Compute a contrastive in-batch softmax loss for retrieval."""
-    targets = torch.arange(logits.size(0), device=logits.device)
-    loss = criterion(logits, targets)
-    if symmetric:
-        loss = 0.5 * (loss + criterion(logits.T, targets))
-    return loss
-
 
 @dataclass(slots=True)
 class FitInputs:
@@ -218,13 +206,6 @@ class TrainableTwoTower(Protocol):
         ...
 
     def score_pairs(
-        self,
-        user_input: torch.Tensor,
-        item_input: torch.Tensor,
-    ) -> torch.Tensor:
-        ...
-
-    def retrieval_logits(
         self,
         user_input: torch.Tensor,
         item_input: torch.Tensor,

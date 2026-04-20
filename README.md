@@ -43,7 +43,7 @@ Packaging-контракт текущей версии:
 - `load_model.py` — восстановление модели из чекпоинта.
 - `data.py` — нормализация и temporal split interaction-данных.
 - `features.py` — подготовка пользовательских и item side-features.
-- `modules/` — нейросетевые tower-компоненты.
+- `modules/` — нейросетевые tower-компоненты: `TwoTowerBase`, `UserTower`, `ItemTower`. Оба тауэра поддерживают scalar и multi-valued side features.
 
 Публичный импорт:
 
