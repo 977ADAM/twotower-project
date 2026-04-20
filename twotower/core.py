@@ -10,7 +10,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from rich.console import Console
-from torch.utils.data import DataLoader, TensorDataset
+from torch.utils.data import DataLoader
 
 from twotower.config import TwoTowerConfig
 from twotower.data import normalize_interactions
@@ -22,6 +22,7 @@ from twotower.features import (
 )
 from twotower.fit import FitInputs, TwoTowerTrainer, build_pairwise_loader, compute_bpr_loss
 from twotower.modules import TwoTowerBase
+from twotower.predict import TwoTowerPredictor
 
 console = Console()
 
@@ -50,6 +51,7 @@ class TwoTower(TwoTowerBase):
         self._item_feature_tables: FeatureTables | None = None
         self._user_feature_metadata: FeatureMetadata = FeatureMetadata.empty()
         self._item_feature_metadata: FeatureMetadata = FeatureMetadata.empty()
+        self._predictor = TwoTowerPredictor()
 
     def fit(
         self,
@@ -112,38 +114,14 @@ class TwoTower(TwoTowerBase):
         default.
         """
         self._ensure_fitted()
-        self.eval()
-
-        resolved_user_ids, candidate_item_ids, resolved_top_k = self._prepare_prediction_inputs(
+        return self._predictor.predict(
+            self,
             user_ids=user_ids,
             item_ids=item_ids,
             top_k=top_k,
+            exclude_seen=exclude_seen,
             strict=strict,
         )
-        if not resolved_user_ids or not candidate_item_ids:
-            return {}
-
-        item_embeddings, candidate_item_ids = self._get_item_embeddings_for_candidates(candidate_item_ids)
-        seen_items_by_user = self._build_seen_items_by_user() if exclude_seen else {}
-
-        predictions: dict[int, list[dict[str, float]]] = {}
-        for user_id in resolved_user_ids:
-            scored_items = self._score_top_k_for_user(
-                user_id=user_id,
-                item_embeddings=item_embeddings,
-                item_ids=candidate_item_ids,
-                top_k=resolved_top_k,
-                excluded_item_ids=seen_items_by_user.get(user_id, set()),
-            )
-            predictions[user_id] = [
-                {
-                    "banner_id": item_id,
-                    "score": score,
-                }
-                for item_id, score in scored_items
-            ]
-
-        return predictions
 
     def evaluate(
         self,
@@ -383,63 +361,6 @@ class TwoTower(TwoTowerBase):
             evaluation_df["event_date"] = pd.Timestamp("1970-01-01")
         return normalize_interactions(evaluation_df)
 
-    def _prepare_prediction_inputs(
-        self,
-        user_ids: Sequence[int] | None,
-        item_ids: Sequence[int] | None,
-        top_k: int | None,
-        strict: bool = False,
-    ) -> tuple[list[int], list[int], int]:
-        """Validate and normalize prediction inputs."""
-        resolved_top_k = top_k or self.config.top_k
-        if resolved_top_k <= 0:
-            raise ValueError("`top_k` must be a positive integer.")
-
-        resolved_user_ids = (
-            self._deduplicate_ids(user_ids)
-            if user_ids is not None
-            else self.idx_to_user_id[: min(10, len(self.idx_to_user_id))]
-        )
-        resolved_item_ids = (
-            self._deduplicate_ids(item_ids)
-            if item_ids is not None
-            else list(self.idx_to_item_id)
-        )
-
-        unknown_user_ids = [
-            user_id for user_id in resolved_user_ids if user_id not in self.user_id_to_idx
-        ]
-        unknown_item_ids = [
-            item_id for item_id in resolved_item_ids if item_id not in self.item_id_to_idx
-        ]
-        if strict and (unknown_user_ids or unknown_item_ids):
-            error_messages: list[str] = []
-            if unknown_user_ids:
-                error_messages.append(f"unknown user_ids: {unknown_user_ids[:5]}")
-            if unknown_item_ids:
-                error_messages.append(f"unknown item_ids: {unknown_item_ids[:5]}")
-            raise ValueError("Prediction received " + "; ".join(error_messages) + ".")
-
-        available_user_ids = [
-            int(user_id) for user_id in resolved_user_ids if int(user_id) in self.user_id_to_idx
-        ]
-        available_item_ids = [
-            int(item_id) for item_id in resolved_item_ids if int(item_id) in self.item_id_to_idx
-        ]
-        return available_user_ids, available_item_ids, int(resolved_top_k)
-
-    @staticmethod
-    def _deduplicate_ids(entity_ids: Sequence[int]) -> list[int]:
-        deduplicated_ids: list[int] = []
-        seen_ids: set[int] = set()
-        for entity_id in entity_ids:
-            normalized_id = int(entity_id)
-            if normalized_id in seen_ids:
-                continue
-            seen_ids.add(normalized_id)
-            deduplicated_ids.append(normalized_id)
-        return deduplicated_ids
-
     def _prepare_fit_inputs(
         self,
         *,
@@ -657,10 +578,11 @@ class TwoTower(TwoTowerBase):
         positive_df = evaluation_df[evaluation_df["label"] == 1.0]
         recalls = []
         seen_items_by_user = self._build_seen_items_by_user()
-        item_embeddings, item_ids = self._build_candidate_item_embeddings()
+        item_embeddings, item_ids = self.get_candidate_item_embeddings(list(self.idx_to_item_id))
         for user_id in candidate_user_ids:
             actual_items = set(positive_df.loc[positive_df["user_id"] == user_id, "banner_id"].astype(int))
-            predicted_items = self._predict_top_k_for_user(
+            predicted_items = self._predictor.predict_top_k_item_ids_for_user(
+                self,
                 user_id=user_id,
                 item_embeddings=item_embeddings,
                 item_ids=item_ids,
@@ -736,6 +658,10 @@ class TwoTower(TwoTowerBase):
         self._refresh_evaluation_reference_data()
         return self._seen_items_by_user
 
+    def get_seen_items_by_user(self) -> dict[int, set[int]]:
+        """Expose seen items for the prediction module."""
+        return self._build_seen_items_by_user()
+
     def _build_train_positive_item_ranking(self) -> list[int]:
         if self._train_positive_item_ids_by_popularity:
             return self._train_positive_item_ids_by_popularity
@@ -758,7 +684,7 @@ class TwoTower(TwoTowerBase):
             self._cached_all_item_ids = item_ids
         return self._cached_all_item_embeddings, self._cached_all_item_ids
 
-    def _get_item_embeddings_for_candidates(
+    def get_candidate_item_embeddings(
         self,
         item_ids: list[int],
     ) -> tuple[torch.Tensor, list[int]]:
@@ -776,63 +702,15 @@ class TwoTower(TwoTowerBase):
 
         return all_item_embeddings[candidate_positions], item_ids
 
-    def _score_top_k_for_user(
-        self,
-        user_id: int,
-        item_embeddings: torch.Tensor,
-        item_ids: list[int],
-        top_k: int,
-        excluded_item_ids: set[int] | None = None,
-    ) -> list[tuple[int, float]]:
+    def get_user_embedding(self, user_id: int) -> torch.Tensor:
+        """Expose user embeddings for the prediction module."""
         if user_id not in self.user_id_to_idx:
-            return []
-
-        excluded_item_ids = excluded_item_ids or set()
-        candidate_positions = [
-            position for position, item_id in enumerate(item_ids)
-            if item_id not in excluded_item_ids
-        ]
-        if not candidate_positions:
-            return []
+            raise KeyError(f"Unknown user_id: {user_id}")
 
         user_index = torch.tensor([self.user_id_to_idx[user_id]], dtype=torch.long, device=self.device)
         with torch.no_grad():
             user_embedding = self.user_tower(user_index)
-            user_embedding = F.normalize(user_embedding, dim=-1)
-            candidate_embeddings = item_embeddings[candidate_positions]
-            scores = torch.matmul(candidate_embeddings, user_embedding.squeeze(0))
-
-        k = min(top_k, scores.size(0))
-        if k == 0:
-            return []
-
-        top_scores, top_positions = torch.topk(scores, k=k)
-        return [
-            (
-                int(item_ids[candidate_positions[position]]),
-                float(score),
-            )
-            for score, position in zip(top_scores.cpu().tolist(), top_positions.cpu().tolist())
-        ]
-
-    def _predict_top_k_for_user(
-        self,
-        user_id: int,
-        item_embeddings: torch.Tensor,
-        item_ids: list[int],
-        top_k: int,
-        excluded_item_ids: set[int] | None = None,
-    ) -> set[int]:
-        return {
-            item_id
-            for item_id, _score in self._score_top_k_for_user(
-                user_id=user_id,
-                item_embeddings=item_embeddings,
-                item_ids=item_ids,
-                top_k=top_k,
-                excluded_item_ids=excluded_item_ids,
-            )
-        }
+        return user_embedding.squeeze(0)
 
     def _invalidate_item_embedding_cache(self) -> None:
         self._cached_all_item_embeddings = None
