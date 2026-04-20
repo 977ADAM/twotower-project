@@ -1,6 +1,5 @@
 from dataclasses import dataclass
 
-
 @dataclass
 class Config:
     users_path: str = "data/raw/users.csv"
