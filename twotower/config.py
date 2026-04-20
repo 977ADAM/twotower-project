@@ -11,7 +11,7 @@ class TwoTowerConfig:
     observed_negative_sampling_ratio: float = 0.8
     learning_rate: float = 1e-3
     batch_size: int = 2048
-    epochs: int = 10
+    epochs: int = 25
     validation_ratio: float = 0.2
     test_ratio: float = 0.1
     max_samples: int | None = 250_000
