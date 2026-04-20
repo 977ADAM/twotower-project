@@ -1,6 +1,6 @@
 from rich.console import Console
 
-from src.data import fit_id_mappings, load_data, prepare_interactions, split_interactions
+from src.data import load_training_frames
 from src.сonfig import Config
 from twotower import TwoTower, TwoTowerConfig
 
@@ -9,30 +9,35 @@ console = Console()
 
 def main():
     config = Config()
-    users_df, items_df, interactions_df = load_data(config)
-    user_idx, item_idx = fit_id_mappings(users_df, items_df)
-    interactions = prepare_interactions(interactions_df, user_idx, item_idx, config)
-    train_df, valid_df, test_df = split_interactions(interactions)
-    X_train = train_df.loc[:, ["user_id", "banner_id"]].copy()
-    y_train = train_df["label"].copy()
-    X_valid = valid_df.loc[:, ["user_id", "banner_id"]].copy()
-    y_valid = valid_df["label"].copy()
+    users_df, items_df, train_df, valid_df, test_df = load_training_frames(config)
 
-    model = TwoTower(TwoTowerConfig(max_samples=config.max_samples))
-    model.fit(
-        X_train=X_train,
-        y_train=y_train,
-        X_valid=X_valid,
-        y_valid=y_valid,
+    model = TwoTower(
+        TwoTowerConfig(
+            max_samples=config.max_samples,
+            top_k=config.top_k,
+            seed=config.seed,
+        )
+    )
+    history = model.fit(
+        X_train=train_df.loc[:, ["user_id", "banner_id"]].copy(),
+        y_train=train_df["label"].copy(),
+        X_valid=valid_df.loc[:, ["user_id", "banner_id"]].copy(),
+        y_valid=valid_df["label"].copy(),
         users_df=users_df,
         items_df=items_df,
     )
+    console.print({"history_tail": history[-3:]})
 
-    metrics = model.evaluate(test_df)
+    metrics = model.evaluate(test_df, top_k=config.top_k)
     console.print({"metrics": metrics})
 
-    sample_users = users_df["user_id"].head(3).astype(int).tolist()
-    predictions = model.predict(user_ids=sample_users)
+    sample_users = model.idx_to_user_id[: min(config.sample_user_count, len(model.idx_to_user_id))]
+    predictions = model.predict(
+        user_ids=sample_users,
+        top_k=config.sample_prediction_top_k,
+        exclude_seen=config.exclude_seen_predictions,
+        strict=True,
+    )
     console.print({"sample_predictions": predictions})
 
     model.save_model(config.model_save_path)

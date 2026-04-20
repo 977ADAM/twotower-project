@@ -101,11 +101,15 @@ class TwoTower(TwoTowerBase):
         user_ids: Sequence[int] | None = None,
         item_ids: Sequence[int] | None = None,
         top_k: int | None = None,
+        exclude_seen: bool = True,
+        strict: bool = False,
     ) -> dict[int, list[dict[str, float]]]:
         """Return top-k item recommendations for the requested users.
 
         If `user_ids` is omitted, predictions are generated for up to 10 known
         users. If `item_ids` is omitted, all known items are used as candidates.
+        Unknown ids are skipped unless `strict=True`. Seen items are excluded by
+        default.
         """
         self._ensure_fitted()
         self.eval()
@@ -114,32 +118,30 @@ class TwoTower(TwoTowerBase):
             user_ids=user_ids,
             item_ids=item_ids,
             top_k=top_k,
+            strict=strict,
         )
-        if not candidate_item_ids:
+        if not resolved_user_ids or not candidate_item_ids:
             return {}
 
         item_embeddings, candidate_item_ids = self._get_item_embeddings_for_candidates(candidate_item_ids)
+        seen_items_by_user = self._build_seen_items_by_user() if exclude_seen else {}
 
-        with torch.no_grad():
-            predictions: dict[int, list[dict[str, float]]] = {}
-            for user_id in resolved_user_ids:
-                if user_id not in self.user_id_to_idx:
-                    continue
-
-                user_index = torch.tensor([self.user_id_to_idx[user_id]], dtype=torch.long, device=self.device)
-                user_embedding = self.user_tower(user_index)
-                user_embedding = F.normalize(user_embedding, dim=-1)
-                scores = torch.matmul(item_embeddings, user_embedding.squeeze(0))
-                k = min(resolved_top_k, scores.size(0))
-                top_scores, top_indices = torch.topk(scores, k=k)
-
-                predictions[user_id] = [
-                    {
-                        "banner_id": int(candidate_item_ids[item_tensor_idx]),
-                        "score": float(score),
-                    }
-                    for score, item_tensor_idx in zip(top_scores.cpu().tolist(), top_indices.cpu().tolist())
-                ]
+        predictions: dict[int, list[dict[str, float]]] = {}
+        for user_id in resolved_user_ids:
+            scored_items = self._score_top_k_for_user(
+                user_id=user_id,
+                item_embeddings=item_embeddings,
+                item_ids=candidate_item_ids,
+                top_k=resolved_top_k,
+                excluded_item_ids=seen_items_by_user.get(user_id, set()),
+            )
+            predictions[user_id] = [
+                {
+                    "banner_id": item_id,
+                    "score": score,
+                }
+                for item_id, score in scored_items
+            ]
 
         return predictions
 
@@ -386,6 +388,7 @@ class TwoTower(TwoTowerBase):
         user_ids: Sequence[int] | None,
         item_ids: Sequence[int] | None,
         top_k: int | None,
+        strict: bool = False,
     ) -> tuple[list[int], list[int], int]:
         """Validate and normalize prediction inputs."""
         resolved_top_k = top_k or self.config.top_k
@@ -393,16 +396,49 @@ class TwoTower(TwoTowerBase):
             raise ValueError("`top_k` must be a positive integer.")
 
         resolved_user_ids = (
-            list(user_ids)
+            self._deduplicate_ids(user_ids)
             if user_ids is not None
             else self.idx_to_user_id[: min(10, len(self.idx_to_user_id))]
         )
-        resolved_item_ids = list(item_ids) if item_ids is not None else list(self.idx_to_item_id)
+        resolved_item_ids = (
+            self._deduplicate_ids(item_ids)
+            if item_ids is not None
+            else list(self.idx_to_item_id)
+        )
 
+        unknown_user_ids = [
+            user_id for user_id in resolved_user_ids if user_id not in self.user_id_to_idx
+        ]
+        unknown_item_ids = [
+            item_id for item_id in resolved_item_ids if item_id not in self.item_id_to_idx
+        ]
+        if strict and (unknown_user_ids or unknown_item_ids):
+            error_messages: list[str] = []
+            if unknown_user_ids:
+                error_messages.append(f"unknown user_ids: {unknown_user_ids[:5]}")
+            if unknown_item_ids:
+                error_messages.append(f"unknown item_ids: {unknown_item_ids[:5]}")
+            raise ValueError("Prediction received " + "; ".join(error_messages) + ".")
+
+        available_user_ids = [
+            int(user_id) for user_id in resolved_user_ids if int(user_id) in self.user_id_to_idx
+        ]
         available_item_ids = [
             int(item_id) for item_id in resolved_item_ids if int(item_id) in self.item_id_to_idx
         ]
-        return [int(user_id) for user_id in resolved_user_ids], available_item_ids, int(resolved_top_k)
+        return available_user_ids, available_item_ids, int(resolved_top_k)
+
+    @staticmethod
+    def _deduplicate_ids(entity_ids: Sequence[int]) -> list[int]:
+        deduplicated_ids: list[int] = []
+        seen_ids: set[int] = set()
+        for entity_id in entity_ids:
+            normalized_id = int(entity_id)
+            if normalized_id in seen_ids:
+                continue
+            seen_ids.add(normalized_id)
+            deduplicated_ids.append(normalized_id)
+        return deduplicated_ids
 
     def _prepare_fit_inputs(
         self,
@@ -740,16 +776,16 @@ class TwoTower(TwoTowerBase):
 
         return all_item_embeddings[candidate_positions], item_ids
 
-    def _predict_top_k_for_user(
+    def _score_top_k_for_user(
         self,
         user_id: int,
         item_embeddings: torch.Tensor,
         item_ids: list[int],
         top_k: int,
         excluded_item_ids: set[int] | None = None,
-    ) -> set[int]:
+    ) -> list[tuple[int, float]]:
         if user_id not in self.user_id_to_idx:
-            return set()
+            return []
 
         excluded_item_ids = excluded_item_ids or set()
         candidate_positions = [
@@ -757,7 +793,7 @@ class TwoTower(TwoTowerBase):
             if item_id not in excluded_item_ids
         ]
         if not candidate_positions:
-            return set()
+            return []
 
         user_index = torch.tensor([self.user_id_to_idx[user_id]], dtype=torch.long, device=self.device)
         with torch.no_grad():
@@ -767,10 +803,35 @@ class TwoTower(TwoTowerBase):
             scores = torch.matmul(candidate_embeddings, user_embedding.squeeze(0))
 
         k = min(top_k, scores.size(0))
-        top_positions = torch.topk(scores, k=k).indices.cpu().tolist()
+        if k == 0:
+            return []
+
+        top_scores, top_positions = torch.topk(scores, k=k)
+        return [
+            (
+                int(item_ids[candidate_positions[position]]),
+                float(score),
+            )
+            for score, position in zip(top_scores.cpu().tolist(), top_positions.cpu().tolist())
+        ]
+
+    def _predict_top_k_for_user(
+        self,
+        user_id: int,
+        item_embeddings: torch.Tensor,
+        item_ids: list[int],
+        top_k: int,
+        excluded_item_ids: set[int] | None = None,
+    ) -> set[int]:
         return {
-            int(item_ids[candidate_positions[position]])
-            for position in top_positions
+            item_id
+            for item_id, _score in self._score_top_k_for_user(
+                user_id=user_id,
+                item_embeddings=item_embeddings,
+                item_ids=item_ids,
+                top_k=top_k,
+                excluded_item_ids=excluded_item_ids,
+            )
         }
 
     def _invalidate_item_embedding_cache(self) -> None:
