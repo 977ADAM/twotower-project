@@ -1,6 +1,6 @@
 """Top-level public API for the twotower package."""
 
-from .config import TwoTowerConfig
+from .src.backend.config import TwoTowerConfig
 from .core import TwoTower
 from .features import FeatureConfig, MultiFeatureSpec
 from .fit import EarlyStopping, NegativeSampling

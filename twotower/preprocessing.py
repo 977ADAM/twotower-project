@@ -5,7 +5,7 @@ from typing import Sequence, TypeAlias
 
 import pandas as pd
 
-from twotower.config import TwoTowerConfig
+from twotower.src.backend.config import TwoTowerConfig
 from twotower.data import normalize_interactions
 
 TargetLike: TypeAlias = pd.Series | Sequence[float]

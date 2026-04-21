@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from twotower.config import TwoTowerConfig
+from twotower.src.backend.config import TwoTowerConfig
 from .item_tower import ItemTower
 from .user_tower import UserTower
 

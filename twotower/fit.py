@@ -10,7 +10,7 @@ import torch.nn as nn
 from rich.console import Console
 from torch.utils.data import DataLoader, Dataset
 
-from twotower.config import TwoTowerConfig
+from twotower.src.backend.config import TwoTowerConfig
 
 console = Console()
 

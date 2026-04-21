@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 import torch
 
-from twotower.config import TwoTowerConfig
+from twotower.src.backend.config import TwoTowerConfig
 from twotower.predict import TwoTowerPredictor
 
 

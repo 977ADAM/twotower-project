@@ -6,7 +6,7 @@ from typing import Protocol
 import pandas as pd
 from torch.utils.data import DataLoader
 
-from twotower.config import TwoTowerConfig
+from twotower.src.backend.config import TwoTowerConfig
 
 
 @dataclass(slots=True)

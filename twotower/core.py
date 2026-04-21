@@ -11,7 +11,7 @@ import torch.nn.functional as F
 from rich.console import Console
 from torch.utils.data import DataLoader
 
-from twotower.config import TwoTowerConfig
+from twotower.src.backend.config import TwoTowerConfig
 from twotower.evaluate import EvaluateInputs, TwoTowerEvaluator
 from twotower.features import (
     FeatureConfig,
