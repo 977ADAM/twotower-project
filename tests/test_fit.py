@@ -8,7 +8,7 @@ import torch
 import torch.nn as nn
 
 from twotower.src.backend.config import TwoTowerConfig
-from twotower.fit import (
+from twotower.src.fit import (
     EarlyStopping,
     FitInputs,
     NegativeSampling,

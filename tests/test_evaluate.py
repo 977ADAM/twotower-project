@@ -4,7 +4,7 @@ import pandas as pd
 import pytest
 
 from twotower.src.backend.config import TwoTowerConfig
-from twotower.evaluate import EvaluateInputs, TwoTowerEvaluator
+from twotower.src.evaluate import EvaluateInputs, TwoTowerEvaluator
 
 
 class StubEvaluableModel:

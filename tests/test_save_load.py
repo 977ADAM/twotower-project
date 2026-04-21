@@ -7,9 +7,9 @@ import pytest
 import torch
 
 from twotower.src.backend.config import TwoTowerConfig
-from twotower.features import FeatureMetadata
-from twotower.load_model import LoadedCheckpointState, TwoTowerModelLoader
-from twotower.save_model import TwoTowerModelSaver
+from twotower.src.features import FeatureMetadata
+from twotower.src.load_model import LoadedCheckpointState, TwoTowerModelLoader
+from twotower.src.save_model import TwoTowerModelSaver
 
 
 class StubSaveableModel:

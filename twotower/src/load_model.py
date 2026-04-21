@@ -8,7 +8,7 @@ from typing import Protocol
 import torch
 
 from twotower.src.backend.config import TwoTowerConfig
-from twotower.features import FeatureMetadata
+from twotower.src.features import FeatureMetadata
 
 
 @dataclass(slots=True)

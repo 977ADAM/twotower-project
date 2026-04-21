@@ -12,19 +12,19 @@ from rich.console import Console
 from torch.utils.data import DataLoader
 
 from twotower.src.backend.config import TwoTowerConfig
-from twotower.evaluate import EvaluateInputs, TwoTowerEvaluator
-from twotower.features import (
+from twotower.src.evaluate import EvaluateInputs, TwoTowerEvaluator
+from twotower.src.features import (
     FeatureConfig,
     FeatureMetadata,
     FeatureTables,
     build_feature_tables,
 )
 from twotower.src.modules import ItemTower, UserTower
-from twotower.fit import EarlyStopping, FitInputs, NegativeSampling, TwoTowerTrainer, build_pairwise_loader, compute_bpr_loss
-from twotower.load_model import LoadedCheckpointState, TwoTowerModelLoader
+from twotower.src.fit import EarlyStopping, FitInputs, NegativeSampling, TwoTowerTrainer, build_pairwise_loader, compute_bpr_loss
+from twotower.src.load_model import LoadedCheckpointState, TwoTowerModelLoader
 from twotower.src.modules import TwoTowerBase
-from twotower.predict import TwoTowerPredictor
-from twotower.preprocessing import (
+from twotower.src.predict import TwoTowerPredictor
+from twotower.src.preprocessing import (
     build_evaluation_reference_data,
     build_id_mappings,
     build_labeled_interactions,
@@ -33,7 +33,7 @@ from twotower.preprocessing import (
     prepare_evaluation_inputs,
     prepare_retrieval_pairs,
 )
-from twotower.save_model import TwoTowerModelSaver
+from twotower.src.save_model import TwoTowerModelSaver
 
 console = Console()
 

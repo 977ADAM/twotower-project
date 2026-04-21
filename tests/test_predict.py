@@ -4,7 +4,7 @@ import pytest
 import torch
 
 from twotower.src.backend.config import TwoTowerConfig
-from twotower.predict import TwoTowerPredictor
+from twotower.src.predict import TwoTowerPredictor
 
 
 class StubPredictableModel:

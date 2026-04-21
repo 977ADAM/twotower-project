@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from twotower.src.backend.config import TwoTowerConfig
-from twotower.features import FeatureMetadata, FeatureTables
+from twotower.src.features import FeatureMetadata, FeatureTables
 
 
 class ItemTower(nn.Module):
