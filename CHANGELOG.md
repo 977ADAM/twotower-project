@@ -11,6 +11,7 @@
 - Added `ruff`, `mypy`, `pytest` to `[project.optional-dependencies] dev`
 
 ### Added
+- `TwoTowerConfig.eval_during_training` — when `True`, recall@k is computed on the validation set after each training epoch and included in the history
 - `FeatureConfig` and `MultiFeatureSpec` dataclasses — exported from `twotower` public API
 - `src/data.py`: `bucketize_age` utility for application-side age bucketing
 - `twotower/preprocessing.py` — pure functions for data preparation

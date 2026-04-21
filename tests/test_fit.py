@@ -26,6 +26,7 @@ class StubTrainableModel(nn.Module):
         self.item_embeddings: nn.Embedding | None = None
         self.build_tower_calls: list[tuple[int, int]] = []
         self.load_state_dict_calls = 0
+        self.recall_at_k_calls: list[tuple[int]] = []
 
     def build_towers(self, num_users: int, num_items: int) -> None:
         self.build_tower_calls.append((num_users, num_items))
@@ -37,10 +38,9 @@ class StubTrainableModel(nn.Module):
             raise RuntimeError("Embeddings are not initialized.")
         return (self.user_embeddings(user_input) * self.item_embeddings(item_input)).sum(dim=-1)
 
-    def retrieval_logits(self, user_input: torch.Tensor, item_input: torch.Tensor) -> torch.Tensor:
-        if self.user_embeddings is None or self.item_embeddings is None:
-            raise RuntimeError("Embeddings are not initialized.")
-        return torch.matmul(self.user_embeddings(user_input), self.item_embeddings(item_input).T)
+    def recall_at_k(self, evaluation_df: pd.DataFrame, top_k: int) -> float:
+        self.recall_at_k_calls.append((top_k,))
+        return 0.5
 
     def load_state_dict(self, state_dict, strict: bool = True):
         self.load_state_dict_calls += 1
@@ -148,3 +148,31 @@ def test_trainer_fit_returns_history_and_restores_best_state(interactions_data):
         assert "valid_loss" in record
         assert math.isfinite(record["train_loss"])
         assert math.isfinite(record["valid_loss"])
+
+
+def test_trainer_fit_computes_recall_metrics_when_eval_during_training(interactions_data):
+    positive_df, interactions_df, _, _ = interactions_data
+    config = TwoTowerConfig(
+        epochs=2, batch_size=2, learning_rate=0.01,
+        observed_negative_sampling_ratio=1.0, seed=13, device="cpu",
+        eval_during_training=True, eval_top_ks=(10, 50),
+    )
+    model = StubTrainableModel(config)
+    trainer = TwoTowerTrainer(config=config, device=torch.device("cpu"))
+    fit_inputs = FitInputs(
+        train_positive_df=positive_df,
+        valid_positive_df=positive_df,
+        train_interactions_df=interactions_df,
+        valid_interactions_df=interactions_df,
+        num_users=2,
+        num_items=3,
+    )
+
+    fit_result = trainer.fit(model, fit_inputs)
+
+    # recall_at_k called once per top-k per epoch: 2 top-ks * 2 epochs
+    assert len(model.recall_at_k_calls) == 4
+    assert sorted({call[0] for call in model.recall_at_k_calls}) == [10, 50]
+    for record in fit_result.history:
+        assert record["recall_at_10"] == pytest.approx(0.5)
+        assert record["recall_at_50"] == pytest.approx(0.5)

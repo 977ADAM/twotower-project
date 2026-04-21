@@ -18,5 +18,6 @@ class TwoTowerConfig:
     eval_top_ks: tuple[int, ...] = (50, 100, 300)
     max_eval_users: int = 500
     top_k: int = 100
+    eval_during_training: bool = False
     seed: int = 42
     device: str | None = "cpu"

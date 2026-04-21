@@ -212,6 +212,9 @@ class TrainableTwoTower(Protocol):
     ) -> torch.Tensor:
         ...
 
+    def recall_at_k(self, evaluation_df: pd.DataFrame, top_k: int) -> float:
+        ...
+
 
 class TwoTowerTrainer:
     """Train a two-tower model from prepared interaction data."""
@@ -245,10 +248,12 @@ class TwoTowerTrainer:
                 valid_loader=valid_loader,
                 criterion=criterion,
             )
+            recall_metrics = self.compute_recall_metrics(model, inputs) if self.config.eval_during_training else {}
             epoch_metrics = self.merge_epoch_metrics(
                 epoch=epoch,
                 train_metrics=train_metrics,
                 valid_metrics=valid_metrics,
+                recall_metrics=recall_metrics,
             )
             state.epoch = epoch
             state.history.append(epoch_metrics)
@@ -261,11 +266,7 @@ class TwoTowerTrainer:
                     for name, tensor in model.state_dict().items()
                 }
 
-            console.print(
-                f"Epoch {epoch}/{self.config.epochs} "
-                f"train_loss={epoch_metrics['train_loss']:.4f} "
-                f"valid_loss={epoch_metrics['valid_loss']:.4f}"
-            )
+            self._print_epoch(epoch, epoch_metrics)
 
         if best_state_dict is not None:
             model.load_state_dict(best_state_dict)
@@ -385,16 +386,49 @@ class TwoTowerTrainer:
             "valid_loss": loss_sum / max(total_examples, 1),
         }
 
+    def compute_recall_metrics(
+        self,
+        model: TrainableTwoTower,
+        inputs: FitInputs,
+    ) -> dict[str, float]:
+        """Compute recall@k on the validation set for all configured top-k values."""
+        eval_top_ks: list[int] = []
+        for k in self.config.eval_top_ks:
+            if int(k) not in eval_top_ks:
+                eval_top_ks.append(int(k))
+
+        metrics: dict[str, float] = {}
+        for k in eval_top_ks:
+            metrics[f"recall_at_{k}"] = model.recall_at_k(inputs.valid_interactions_df, k)
+        return metrics
+
     def merge_epoch_metrics(
         self,
         *,
         epoch: int,
         train_metrics: dict[str, float],
         valid_metrics: dict[str, float],
+        recall_metrics: dict[str, float],
     ) -> dict[str, float]:
-        """Merge train and validation metrics into one history record."""
+        """Merge train, validation, and recall metrics into one history record."""
         return {
             "epoch": float(epoch),
             **train_metrics,
             **valid_metrics,
+            **recall_metrics,
         }
+
+    def _print_epoch(self, epoch: int, metrics: dict[str, float]) -> None:
+        """Print a summary line for the current epoch."""
+        recall_parts = " ".join(
+            f"{key}={value:.4f}"
+            for key, value in metrics.items()
+            if key.startswith("recall_at_")
+        )
+        recall_str = f" {recall_parts}" if recall_parts else ""
+        console.print(
+            f"Epoch {epoch}/{self.config.epochs} "
+            f"train_loss={metrics['train_loss']:.4f} "
+            f"valid_loss={metrics['valid_loss']:.4f}"
+            f"{recall_str}"
+        )

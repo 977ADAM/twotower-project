@@ -76,6 +76,7 @@ Package-level public exports: `TwoTower`, `TwoTowerConfig`, `FeatureConfig`, `Mu
 - `eval_top_ks`
 - `max_eval_users`
 - `top_k`
+- `eval_during_training` — если `True`, recall@k считается на валидации после каждой эпохи и пишется в историю
 - `seed`
 - `device`
 
@@ -105,7 +106,7 @@ history = model.fit(
 
 Результат:
 
-- список словарей с историей обучения по эпохам, например `epoch`, `train_loss`, `valid_loss`.
+- список словарей с историей обучения по эпохам: `epoch`, `train_loss`, `valid_loss`; при `eval_during_training=True` также `recall_at_<k>` для каждого значения из `eval_top_ks`.
 
 ### `predict(...)`
 
