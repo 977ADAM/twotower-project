@@ -8,7 +8,6 @@ class TwoTowerConfig:
     hidden_dim: int = 64
     retrieval_temperature: float = 0.1
     symmetric_retrieval_loss: bool = True
-    observed_negative_sampling_ratio: float = 0.8
     learning_rate: float = 1e-3
     batch_size: int = 2048
     epochs: int = 25
@@ -19,6 +18,5 @@ class TwoTowerConfig:
     max_eval_users: int = 500
     top_k: int = 100
     eval_during_training: bool = True
-    in_batch_loss_weight: float = 0.0
     seed: int = 42
     device: str | None = "cpu"

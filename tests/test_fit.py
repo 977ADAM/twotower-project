@@ -11,6 +11,7 @@ from twotower.config import TwoTowerConfig
 from twotower.fit import (
     EarlyStopping,
     FitInputs,
+    NegativeSampling,
     PairwiseInteractionsDataset,
     TwoTowerTrainer,
     build_pairwise_loader,
@@ -133,10 +134,7 @@ def test_build_pairwise_loader_returns_expected_training_triples(interactions_da
 
 def test_trainer_fit_returns_history_and_restores_best_state(interactions_data):
     positive_df, interactions_df, _, _ = interactions_data
-    config = TwoTowerConfig(
-        epochs=2, batch_size=2, learning_rate=0.01,
-        observed_negative_sampling_ratio=1.0, seed=13, device="cpu",
-    )
+    config = TwoTowerConfig(epochs=2, batch_size=2, learning_rate=0.01, seed=13, device="cpu")
     model = StubTrainableModel(config)
     trainer = TwoTowerTrainer(config=config, device=torch.device("cpu"))
     fit_inputs = FitInputs(
@@ -148,7 +146,7 @@ def test_trainer_fit_returns_history_and_restores_best_state(interactions_data):
         num_items=3,
     )
 
-    fit_result = trainer.fit(model, fit_inputs)
+    fit_result = trainer.fit(model, fit_inputs, negative_sampling=NegativeSampling(observed_ratio=1.0))
 
     assert model.build_tower_calls == [(2, 3)]
     assert model.load_state_dict_calls == 1
@@ -164,9 +162,8 @@ def test_trainer_fit_returns_history_and_restores_best_state(interactions_data):
 def test_trainer_fit_with_in_batch_loss_produces_finite_loss(interactions_data):
     positive_df, interactions_df, _, _ = interactions_data
     config = TwoTowerConfig(
-        epochs=2, batch_size=2, learning_rate=0.01,
-        observed_negative_sampling_ratio=1.0, seed=13, device="cpu",
-        eval_during_training=False, in_batch_loss_weight=1.0,
+        epochs=2, batch_size=2, learning_rate=0.01, seed=13, device="cpu",
+        eval_during_training=False,
     )
     model = StubTrainableModel(config)
     trainer = TwoTowerTrainer(config=config, device=torch.device("cpu"))
@@ -179,7 +176,11 @@ def test_trainer_fit_with_in_batch_loss_produces_finite_loss(interactions_data):
         num_items=3,
     )
 
-    fit_result = trainer.fit(model, fit_inputs, early_stopping=None)
+    fit_result = trainer.fit(
+        model, fit_inputs,
+        negative_sampling=NegativeSampling(observed_ratio=1.0, in_batch_loss_weight=1.0),
+        early_stopping=None,
+    )
 
     assert len(fit_result.history) == 2
     for record in fit_result.history:
@@ -190,8 +191,7 @@ def test_trainer_early_stopping_halts_before_max_epochs(interactions_data):
     positive_df, interactions_df, _, _ = interactions_data
     config = TwoTowerConfig(
         epochs=20, batch_size=2, learning_rate=0.0,  # lr=0 → loss never improves
-        observed_negative_sampling_ratio=1.0, seed=13, device="cpu",
-        eval_during_training=False,
+        seed=13, device="cpu", eval_during_training=False,
     )
     model = StubTrainableModel(config)
     trainer = TwoTowerTrainer(config=config, device=torch.device("cpu"))
@@ -214,8 +214,7 @@ def test_trainer_early_stopping_on_recall_metric(interactions_data):
     positive_df, interactions_df, _, _ = interactions_data
     config = TwoTowerConfig(
         epochs=10, batch_size=2, learning_rate=0.0,
-        observed_negative_sampling_ratio=1.0, seed=13, device="cpu",
-        eval_during_training=False, eval_top_ks=(10,),
+        seed=13, device="cpu", eval_during_training=False, eval_top_ks=(10,),
     )
     model = StubTrainableModel(config)
     trainer = TwoTowerTrainer(config=config, device=torch.device("cpu"))
@@ -244,8 +243,7 @@ def test_trainer_no_early_stopping_runs_all_epochs(interactions_data):
     positive_df, interactions_df, _, _ = interactions_data
     config = TwoTowerConfig(
         epochs=3, batch_size=2, learning_rate=0.0,
-        observed_negative_sampling_ratio=1.0, seed=13, device="cpu",
-        eval_during_training=False,
+        seed=13, device="cpu", eval_during_training=False,
     )
     model = StubTrainableModel(config)
     trainer = TwoTowerTrainer(config=config, device=torch.device("cpu"))
@@ -267,8 +265,7 @@ def test_trainer_fit_computes_recall_metrics_when_eval_during_training(interacti
     positive_df, interactions_df, _, _ = interactions_data
     config = TwoTowerConfig(
         epochs=2, batch_size=2, learning_rate=0.01,
-        observed_negative_sampling_ratio=1.0, seed=13, device="cpu",
-        eval_during_training=True, eval_top_ks=(10, 50),
+        seed=13, device="cpu", eval_during_training=True, eval_top_ks=(10, 50),
     )
     model = StubTrainableModel(config)
     trainer = TwoTowerTrainer(config=config, device=torch.device("cpu"))

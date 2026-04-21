@@ -1,4 +1,5 @@
 .PHONE:
 
-run-ruff:
-	@ruff check src tests
+run-lint:
+	@ruff check src tests && \
+	mypy src tests \

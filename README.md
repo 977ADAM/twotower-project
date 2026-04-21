@@ -48,10 +48,10 @@ Packaging-контракт текущей версии:
 Публичный импорт:
 
 ```python
-from twotower import TwoTower, TwoTowerConfig, FeatureConfig, MultiFeatureSpec, EarlyStopping
+from twotower import TwoTower, TwoTowerConfig, FeatureConfig, MultiFeatureSpec, EarlyStopping, NegativeSampling
 ```
 
-Package-level public exports: `TwoTower`, `TwoTowerConfig`, `FeatureConfig`, `MultiFeatureSpec`, `EarlyStopping`.
+Package-level public exports: `TwoTower`, `TwoTowerConfig`, `FeatureConfig`, `MultiFeatureSpec`, `EarlyStopping`, `NegativeSampling`.
 `TwoTowerBase` остается внутренней реализационной деталью и не считается частью стабильного внешнего API.
 
 ## Public API
@@ -66,7 +66,6 @@ Package-level public exports: `TwoTower`, `TwoTowerConfig`, `FeatureConfig`, `Mu
 - `hidden_dim`
 - `retrieval_temperature`
 - `symmetric_retrieval_loss`
-- `observed_negative_sampling_ratio`
 - `learning_rate`
 - `batch_size`
 - `epochs`
@@ -77,7 +76,6 @@ Package-level public exports: `TwoTower`, `TwoTowerConfig`, `FeatureConfig`, `Mu
 - `max_eval_users`
 - `top_k`
 - `eval_during_training` — если `True`, recall@k считается на валидации после каждой эпохи и пишется в историю (по умолчанию `True`)
-- `in_batch_loss_weight` — вес in-batch contrastive loss поверх BPR; `0.0` — выключено (по умолчанию)
 - `seed`
 - `device`
 
@@ -95,6 +93,7 @@ history = model.fit(
     items_df=items_df,                        # необязательно
     user_feature_config=user_feature_config,  # необязательно
     item_feature_config=item_feature_config,  # необязательно
+    negative_sampling=NegativeSampling(observed_ratio=0.8, in_batch_loss_weight=0.0),
     early_stopping=EarlyStopping(patience=5, metric="valid_loss"),  # None — отключить
 )
 ```

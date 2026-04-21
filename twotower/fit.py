@@ -26,6 +26,21 @@ def compute_bpr_loss(
 
 
 @dataclass(slots=True, frozen=True)
+class NegativeSampling:
+    """Negative sampling strategy passed to fit().
+
+    Controls how negative examples are drawn during training.
+    `observed_ratio` sets the fraction of negatives sampled from
+    observed non-positive interactions (vs random items).
+    `in_batch_loss_weight` adds an InfoNCE contrastive loss over the
+    batch similarity matrix on top of BPR; set to 0.0 to disable.
+    """
+
+    observed_ratio: float = 0.8
+    in_batch_loss_weight: float = 0.0
+
+
+@dataclass(slots=True, frozen=True)
 class EarlyStopping:
     """Early stopping strategy passed to fit().
 
@@ -257,14 +272,15 @@ class TwoTowerTrainer:
         self,
         model: TrainableTwoTower,
         inputs: FitInputs,
+        negative_sampling: NegativeSampling = NegativeSampling(),
         early_stopping: EarlyStopping | None = EarlyStopping(),
     ) -> FitResult:
         """Run the full training loop and return training artifacts."""
         model.build_towers(inputs.num_users, inputs.num_items)
         model.to(self.device)
 
-        train_loader = self.build_train_loader(model, inputs)
-        valid_loader = self.build_valid_loader(model, inputs)
+        train_loader = self.build_train_loader(model, inputs, negative_sampling)
+        valid_loader = self.build_valid_loader(model, inputs, negative_sampling)
         optimizer = self.build_optimizer(model)
         criterion = self.build_loss()
 
@@ -284,6 +300,7 @@ class TwoTowerTrainer:
                 train_loader=train_loader,
                 optimizer=optimizer,
                 criterion=criterion,
+                negative_sampling=negative_sampling,
             )
             valid_metrics = self.validate(
                 model=model,
@@ -344,6 +361,7 @@ class TwoTowerTrainer:
         self,
         model: TrainableTwoTower,
         inputs: FitInputs,
+        negative_sampling: NegativeSampling,
     ) -> DataLoader:
         """Create the training dataloader."""
         return build_pairwise_loader(
@@ -354,7 +372,7 @@ class TwoTowerTrainer:
             num_items=inputs.num_items,
             batch_size=self.config.batch_size,
             shuffle=True,
-            observed_negative_sampling_ratio=self.config.observed_negative_sampling_ratio,
+            observed_negative_sampling_ratio=negative_sampling.observed_ratio,
             seed=self.config.seed,
         )
 
@@ -362,6 +380,7 @@ class TwoTowerTrainer:
         self,
         model: TrainableTwoTower,
         inputs: FitInputs,
+        negative_sampling: NegativeSampling,
     ) -> DataLoader:
         """Create the validation dataloader."""
         return build_pairwise_loader(
@@ -372,7 +391,7 @@ class TwoTowerTrainer:
             num_items=inputs.num_items,
             batch_size=self.config.batch_size,
             shuffle=False,
-            observed_negative_sampling_ratio=self.config.observed_negative_sampling_ratio,
+            observed_negative_sampling_ratio=negative_sampling.observed_ratio,
             seed=self.config.seed + 1,
         )
 
@@ -382,12 +401,13 @@ class TwoTowerTrainer:
         train_loader: DataLoader,
         optimizer: torch.optim.Optimizer,
         criterion: nn.Module,
+        negative_sampling: NegativeSampling,
     ) -> dict[str, float]:
         """Run one training epoch and return train metrics."""
         model.train()
         loss_sum = 0.0
         total_examples = 0
-        use_in_batch = self.config.in_batch_loss_weight > 0.0
+        use_in_batch = negative_sampling.in_batch_loss_weight > 0.0
 
         for user_batch, pos_item_batch, neg_item_batch in train_loader:
             user_batch = user_batch.to(self.device)
@@ -411,7 +431,7 @@ class TwoTowerTrainer:
             if use_in_batch:
                 logits = user_embs @ pos_item_embs.T / self.config.retrieval_temperature
                 labels = torch.arange(user_batch.size(0), device=self.device)
-                loss = loss + self.config.in_batch_loss_weight * torch.nn.functional.cross_entropy(logits, labels)
+                loss = loss + negative_sampling.in_batch_loss_weight * torch.nn.functional.cross_entropy(logits, labels)
 
             loss.backward()
             optimizer.step()

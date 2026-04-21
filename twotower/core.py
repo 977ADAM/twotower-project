@@ -20,7 +20,7 @@ from twotower.features import (
     build_feature_tables,
 )
 from twotower.modules import ItemTower, UserTower
-from twotower.fit import EarlyStopping, FitInputs, TwoTowerTrainer, build_pairwise_loader, compute_bpr_loss
+from twotower.fit import EarlyStopping, FitInputs, NegativeSampling, TwoTowerTrainer, build_pairwise_loader, compute_bpr_loss
 from twotower.load_model import LoadedCheckpointState, TwoTowerModelLoader
 from twotower.modules import TwoTowerBase
 from twotower.predict import TwoTowerPredictor
@@ -63,6 +63,7 @@ class TwoTower(TwoTowerBase):
         self._item_feature_tables: FeatureTables | None = None
         self._user_feature_metadata: FeatureMetadata = FeatureMetadata.empty()
         self._item_feature_metadata: FeatureMetadata = FeatureMetadata.empty()
+        self._negative_sampling: NegativeSampling = NegativeSampling()
         self._evaluator = TwoTowerEvaluator()
         self._predictor = TwoTowerPredictor()
         self._model_saver = TwoTowerModelSaver()
@@ -79,6 +80,7 @@ class TwoTower(TwoTowerBase):
         items_df: pd.DataFrame | None = None,
         user_feature_config: FeatureConfig | None = None,
         item_feature_config: FeatureConfig | None = None,
+        negative_sampling: NegativeSampling = NegativeSampling(),
         early_stopping: EarlyStopping | None = EarlyStopping(),
     ) -> list[dict[str, float]]:
         """Fit the model on interaction pairs.
@@ -105,6 +107,7 @@ class TwoTower(TwoTowerBase):
             user_feature_config=user_feature_config,
             item_feature_config=item_feature_config,
         )
+        self._negative_sampling = negative_sampling
 
         self.invalidate_item_embedding_cache()
 
@@ -118,7 +121,11 @@ class TwoTower(TwoTowerBase):
         )
         trainer = TwoTowerTrainer(config=self.config, device=self.device)
 
-        fit_result = trainer.fit(self, fit_inputs, early_stopping=early_stopping)
+        fit_result = trainer.fit(
+            self, fit_inputs,
+            negative_sampling=negative_sampling,
+            early_stopping=early_stopping,
+        )
         self.train_history = fit_result.history
 
         self.invalidate_item_embedding_cache()
@@ -250,7 +257,7 @@ class TwoTower(TwoTowerBase):
             num_items=len(self.idx_to_item_id),
             batch_size=self.config.batch_size,
             shuffle=shuffle,
-            observed_negative_sampling_ratio=self.config.observed_negative_sampling_ratio,
+            observed_negative_sampling_ratio=self._negative_sampling.observed_ratio,
             seed=self.config.seed + 2,
         )
 
