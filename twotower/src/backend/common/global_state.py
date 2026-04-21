@@ -1,12 +1,8 @@
 import gc
 import threading
 
-from twotower.src import backend
-from twotower.src.api_export import keras_export
-
 GLOBAL_STATE_TRACKER = threading.local()
 GLOBAL_SETTINGS_TRACKER = threading.local()
-
 
 def set_global_attribute(name, value):
     setattr(GLOBAL_STATE_TRACKER, name, value)
