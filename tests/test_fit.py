@@ -150,6 +150,31 @@ def test_trainer_fit_returns_history_and_restores_best_state(interactions_data):
         assert math.isfinite(record["valid_loss"])
 
 
+def test_trainer_early_stopping_halts_before_max_epochs(interactions_data):
+    positive_df, interactions_df, _, _ = interactions_data
+    config = TwoTowerConfig(
+        epochs=20, batch_size=2, learning_rate=0.0,  # lr=0 → loss never improves
+        observed_negative_sampling_ratio=1.0, seed=13, device="cpu",
+        early_stopping_patience=2, early_stopping_min_delta=0.0,
+        eval_during_training=False,
+    )
+    model = StubTrainableModel(config)
+    trainer = TwoTowerTrainer(config=config, device=torch.device("cpu"))
+    fit_inputs = FitInputs(
+        train_positive_df=positive_df,
+        valid_positive_df=positive_df,
+        train_interactions_df=interactions_df,
+        valid_interactions_df=interactions_df,
+        num_users=2,
+        num_items=3,
+    )
+
+    fit_result = trainer.fit(model, fit_inputs)
+
+    # first epoch sets best; epochs 2 and 3 show no improvement → stop at epoch 3
+    assert len(fit_result.history) == 3
+
+
 def test_trainer_fit_computes_recall_metrics_when_eval_during_training(interactions_data):
     positive_df, interactions_df, _, _ = interactions_data
     config = TwoTowerConfig(

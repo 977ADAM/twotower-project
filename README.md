@@ -76,7 +76,9 @@ Package-level public exports: `TwoTower`, `TwoTowerConfig`, `FeatureConfig`, `Mu
 - `eval_top_ks`
 - `max_eval_users`
 - `top_k`
-- `eval_during_training` — если `True`, recall@k считается на валидации после каждой эпохи и пишется в историю
+- `eval_during_training` — если `True`, recall@k считается на валидации после каждой эпохи и пишется в историю (по умолчанию `True`)
+- `early_stopping_patience` — сколько эпох без улучшения `valid_loss` до остановки (по умолчанию `5`)
+- `early_stopping_min_delta` — минимальный порог улучшения `valid_loss` (по умолчанию `1e-4`)
 - `seed`
 - `device`
 

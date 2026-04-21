@@ -236,6 +236,7 @@ class TwoTowerTrainer:
         state = FitState()
         best_valid_loss: float | None = None
         best_state_dict: dict[str, torch.Tensor] | None = None
+        epochs_without_improvement = 0
         for epoch in range(1, self.config.epochs + 1):
             train_metrics = self.train_epoch(
                 model=model,
@@ -259,14 +260,24 @@ class TwoTowerTrainer:
             state.history.append(epoch_metrics)
 
             current_valid_loss = epoch_metrics["valid_loss"]
-            if best_valid_loss is None or current_valid_loss < best_valid_loss:
+            if best_valid_loss is None or current_valid_loss < best_valid_loss - self.config.early_stopping_min_delta:
                 best_valid_loss = current_valid_loss
                 best_state_dict = {
                     name: tensor.detach().cpu().clone()
                     for name, tensor in model.state_dict().items()
                 }
+                epochs_without_improvement = 0
+            else:
+                epochs_without_improvement += 1
 
             self._print_epoch(epoch, epoch_metrics)
+
+            if epochs_without_improvement >= self.config.early_stopping_patience:
+                console.print(
+                    f"Early stopping at epoch {epoch} "
+                    f"(no improvement in valid_loss for {self.config.early_stopping_patience} epochs)"
+                )
+                break
 
         if best_state_dict is not None:
             model.load_state_dict(best_state_dict)
