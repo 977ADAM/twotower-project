@@ -19,10 +19,10 @@ from twotower.features import (
     FeatureTables,
     build_feature_tables,
 )
-from twotower.modules import ItemTower, UserTower
+from twotower.src.modules import ItemTower, UserTower
 from twotower.fit import EarlyStopping, FitInputs, NegativeSampling, TwoTowerTrainer, build_pairwise_loader, compute_bpr_loss
 from twotower.load_model import LoadedCheckpointState, TwoTowerModelLoader
-from twotower.modules import TwoTowerBase
+from twotower.src.modules import TwoTowerBase
 from twotower.predict import TwoTowerPredictor
 from twotower.preprocessing import (
     build_evaluation_reference_data,
