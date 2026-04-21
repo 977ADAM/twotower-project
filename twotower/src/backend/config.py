@@ -1,4 +1,10 @@
+import json
+import os
 from dataclasses import dataclass
+
+from twotower.src.api_export import twotower_export
+
+_MAX_EPOCHS = None
 
 @dataclass
 class TwoTowerConfig:
@@ -20,3 +26,8 @@ class TwoTowerConfig:
     eval_during_training: bool = True
     seed: int = 42
     device: str | None = "cpu"
+
+
+@twotower_export(["twotower.config.max_epochs"])
+def max_epochs():
+    return _MAX_EPOCHS
