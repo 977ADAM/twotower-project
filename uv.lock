@@ -724,6 +724,15 @@ wheels = [
 ]
 
 [[package]]
+name = "namex"
+version = "0.1.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/0c/c0/ee95b28f029c73f8d49d8f52edaed02a1d4a9acb8b69355737fdb1faa191/namex-0.1.0.tar.gz", hash = "sha256:117f03ccd302cc48e3f5c58a296838f6b89c83455ab8683a1e85f2a430aa4306", size = 6649, upload-time = "2025-05-26T23:17:38.918Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b2/bc/465daf1de06409cdd4532082806770ee0d8d7df434da79c76564d0f69741/namex-0.1.0-py3-none-any.whl", hash = "sha256:e2012a474502f1e2251267062aae3114611f07df4224b6e06334c57b0f2ce87c", size = 5905, upload-time = "2025-05-26T23:17:37.695Z" },
+]
+
+[[package]]
 name = "networkx"
 version = "3.6.1"
 source = { registry = "https://pypi.org/simple" }
@@ -1771,7 +1780,7 @@ name = "twotower"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
-    { name = "mypy" },
+    { name = "namex" },
     { name = "pandas" },
     { name = "rich" },
     { name = "scikit-learn" },
@@ -1800,8 +1809,8 @@ dev = [
 requires-dist = [
     { name = "fastapi", marker = "extra == 'app'", specifier = ">=0.136.0" },
     { name = "gradio", marker = "extra == 'app'", specifier = ">=6.12.0" },
-    { name = "mypy", specifier = ">=1.20.1" },
-    { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.0" },
+    { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.20.1" },
+    { name = "namex", specifier = ">=0.1.0" },
     { name = "pandas", specifier = ">=3.0.2" },
     { name = "pydantic", marker = "extra == 'app'", specifier = ">=2.13.2" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },

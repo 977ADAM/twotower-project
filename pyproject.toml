@@ -9,6 +9,7 @@ description = "Library-style two-tower retrieval model with fit, predict, evalua
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "namex>=0.1.0",
     "pandas>=3.0.2",
     "rich>=15.0.0",
     "scikit-learn>=1.8.0",
