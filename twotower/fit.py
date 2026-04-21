@@ -212,7 +212,7 @@ class TrainableTwoTower(Protocol):
     ) -> torch.Tensor:
         ...
 
-    def recall_at_k(self, evaluation_df: pd.DataFrame, top_k: int) -> float:
+    def recall_at_k(self, evaluation_df: pd.DataFrame, top_k: int, exclude_seen: bool = True) -> float:
         ...
 
 
@@ -410,7 +410,7 @@ class TwoTowerTrainer:
 
         metrics: dict[str, float] = {}
         for k in eval_top_ks:
-            metrics[f"recall_at_{k}"] = model.recall_at_k(inputs.valid_interactions_df, k)
+            metrics[f"recall_at_{k}"] = model.recall_at_k(inputs.valid_interactions_df, k, exclude_seen=False)
         return metrics
 
     def merge_epoch_metrics(

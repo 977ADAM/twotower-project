@@ -302,14 +302,14 @@ class TwoTower(TwoTowerBase):
             .tolist()
         )
 
-    def recall_at_k(self, evaluation_df: pd.DataFrame, top_k: int) -> float:
+    def recall_at_k(self, evaluation_df: pd.DataFrame, top_k: int, exclude_seen: bool = True) -> float:
         candidate_user_ids = self.get_eval_user_ids(evaluation_df)
         if not candidate_user_ids:
             return 0.0
 
         positive_df = evaluation_df[evaluation_df["label"] == 1.0]
         recalls = []
-        seen_items_by_user = self.get_seen_items_by_user()
+        seen_items_by_user = self.get_seen_items_by_user() if exclude_seen else {}
         item_embeddings, item_ids = self.get_candidate_item_embeddings(list(self.idx_to_item_id))
         for user_id in candidate_user_ids:
             actual_items = set(positive_df.loc[positive_df["user_id"] == user_id, "banner_id"].astype(int))

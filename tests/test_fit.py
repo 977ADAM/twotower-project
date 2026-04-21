@@ -38,7 +38,7 @@ class StubTrainableModel(nn.Module):
             raise RuntimeError("Embeddings are not initialized.")
         return (self.user_embeddings(user_input) * self.item_embeddings(item_input)).sum(dim=-1)
 
-    def recall_at_k(self, evaluation_df: pd.DataFrame, top_k: int) -> float:
+    def recall_at_k(self, evaluation_df: pd.DataFrame, top_k: int, exclude_seen: bool = True) -> float:
         self.recall_at_k_calls.append((top_k,))
         return 0.5
 
