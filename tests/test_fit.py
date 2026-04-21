@@ -34,10 +34,20 @@ class StubTrainableModel(nn.Module):
         self.user_embeddings = nn.Embedding(num_users, 4)
         self.item_embeddings = nn.Embedding(num_items, 4)
 
-    def score_pairs(self, user_input: torch.Tensor, item_input: torch.Tensor) -> torch.Tensor:
-        if self.user_embeddings is None or self.item_embeddings is None:
+    def encode_users(self, user_input: torch.Tensor) -> torch.Tensor:
+        if self.user_embeddings is None:
             raise RuntimeError("Embeddings are not initialized.")
-        return (self.user_embeddings(user_input) * self.item_embeddings(item_input)).sum(dim=-1)
+        import torch.nn.functional as F
+        return F.normalize(self.user_embeddings(user_input), dim=-1)
+
+    def encode_items(self, item_input: torch.Tensor) -> torch.Tensor:
+        if self.item_embeddings is None:
+            raise RuntimeError("Embeddings are not initialized.")
+        import torch.nn.functional as F
+        return F.normalize(self.item_embeddings(item_input), dim=-1)
+
+    def score_pairs(self, user_input: torch.Tensor, item_input: torch.Tensor) -> torch.Tensor:
+        return (self.encode_users(user_input) * self.encode_items(item_input)).sum(dim=-1)
 
     def recall_at_k(self, evaluation_df: pd.DataFrame, top_k: int, exclude_seen: bool = True) -> float:
         self.recall_at_k_calls.append((top_k,))
@@ -149,6 +159,31 @@ def test_trainer_fit_returns_history_and_restores_best_state(interactions_data):
         assert "valid_loss" in record
         assert math.isfinite(record["train_loss"])
         assert math.isfinite(record["valid_loss"])
+
+
+def test_trainer_fit_with_in_batch_loss_produces_finite_loss(interactions_data):
+    positive_df, interactions_df, _, _ = interactions_data
+    config = TwoTowerConfig(
+        epochs=2, batch_size=2, learning_rate=0.01,
+        observed_negative_sampling_ratio=1.0, seed=13, device="cpu",
+        eval_during_training=False, in_batch_loss_weight=1.0,
+    )
+    model = StubTrainableModel(config)
+    trainer = TwoTowerTrainer(config=config, device=torch.device("cpu"))
+    fit_inputs = FitInputs(
+        train_positive_df=positive_df,
+        valid_positive_df=positive_df,
+        train_interactions_df=interactions_df,
+        valid_interactions_df=interactions_df,
+        num_users=2,
+        num_items=3,
+    )
+
+    fit_result = trainer.fit(model, fit_inputs, early_stopping=None)
+
+    assert len(fit_result.history) == 2
+    for record in fit_result.history:
+        assert math.isfinite(record["train_loss"])
 
 
 def test_trainer_early_stopping_halts_before_max_epochs(interactions_data):

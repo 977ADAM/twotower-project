@@ -14,23 +14,21 @@ class TwoTowerBase(nn.Module):
         self.user_tower: UserTower | None = None
         self.item_tower: ItemTower | None = None
 
-    def forward(
-        self,
-        user_input: torch.Tensor,
-        item_input: torch.Tensor,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        if self.user_tower is None or self.item_tower is None:
+    def encode_users(self, user_input: torch.Tensor) -> torch.Tensor:
+        if self.user_tower is None:
             raise RuntimeError("Model towers are not initialized. Call fit() or load_model() first.")
-        return self.user_tower(user_input), self.item_tower(item_input)
+        return F.normalize(self.user_tower(user_input), dim=-1)
+
+    def encode_items(self, item_input: torch.Tensor) -> torch.Tensor:
+        if self.item_tower is None:
+            raise RuntimeError("Model towers are not initialized. Call fit() or load_model() first.")
+        return F.normalize(self.item_tower(item_input), dim=-1)
 
     def score_pairs(self, user_input: torch.Tensor, item_input: torch.Tensor) -> torch.Tensor:
-        user_emb, item_emb = self.forward(user_input, item_input)
-        user_emb = F.normalize(user_emb, dim=-1)
-        item_emb = F.normalize(item_emb, dim=-1)
-        return (user_emb * item_emb).sum(dim=-1)
+        return (self.encode_users(user_input) * self.encode_items(item_input)).sum(dim=-1)
 
     def retrieval_logits(self, user_input: torch.Tensor, item_input: torch.Tensor) -> torch.Tensor:
-        user_emb, item_emb = self.forward(user_input, item_input)
-        user_emb = F.normalize(user_emb, dim=-1)
-        item_emb = F.normalize(item_emb, dim=-1)
-        return torch.matmul(user_emb, item_emb.T) / self.config.retrieval_temperature
+        return torch.matmul(
+            self.encode_users(user_input),
+            self.encode_items(item_input).T,
+        ) / self.config.retrieval_temperature

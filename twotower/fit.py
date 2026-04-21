@@ -229,6 +229,12 @@ class TrainableTwoTower(Protocol):
     def eval(self):
         ...
 
+    def encode_users(self, user_input: torch.Tensor) -> torch.Tensor:
+        ...
+
+    def encode_items(self, item_input: torch.Tensor) -> torch.Tensor:
+        ...
+
     def score_pairs(
         self,
         user_input: torch.Tensor,
@@ -381,6 +387,7 @@ class TwoTowerTrainer:
         model.train()
         loss_sum = 0.0
         total_examples = 0
+        use_in_batch = self.config.in_batch_loss_weight > 0.0
 
         for user_batch, pos_item_batch, neg_item_batch in train_loader:
             user_batch = user_batch.to(self.device)
@@ -388,13 +395,24 @@ class TwoTowerTrainer:
             neg_item_batch = neg_item_batch.to(self.device)
 
             optimizer.zero_grad()
-            positive_scores = model.score_pairs(user_batch, pos_item_batch)
-            negative_scores = model.score_pairs(user_batch, neg_item_batch)
+
+            user_embs = model.encode_users(user_batch)
+            pos_item_embs = model.encode_items(pos_item_batch)
+            neg_item_embs = model.encode_items(neg_item_batch)
+
+            positive_scores = (user_embs * pos_item_embs).sum(dim=-1)
+            negative_scores = (user_embs * neg_item_embs).sum(dim=-1)
             loss = compute_bpr_loss(
                 positive_scores=positive_scores,
                 negative_scores=negative_scores,
                 criterion=criterion,
             )
+
+            if use_in_batch:
+                logits = user_embs @ pos_item_embs.T / self.config.retrieval_temperature
+                labels = torch.arange(user_batch.size(0), device=self.device)
+                loss = loss + self.config.in_batch_loss_weight * torch.nn.functional.cross_entropy(logits, labels)
+
             loss.backward()
             optimizer.step()
 

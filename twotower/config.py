@@ -19,5 +19,6 @@ class TwoTowerConfig:
     max_eval_users: int = 500
     top_k: int = 100
     eval_during_training: bool = True
+    in_batch_loss_weight: float = 0.0
     seed: int = 42
     device: str | None = "cpu"

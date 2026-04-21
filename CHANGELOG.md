@@ -11,6 +11,8 @@
 - Added `ruff`, `mypy`, `pytest` to `[project.optional-dependencies] dev`
 
 ### Added
+- In-batch negatives: `TwoTowerConfig.in_batch_loss_weight` (default `0.0`) — when > 0, adds InfoNCE contrastive loss over the batch similarity matrix on top of BPR
+- `encode_users` / `encode_items` methods on `TwoTowerBase` and `TrainableTwoTower` protocol — embeddings are now computed once per step and reused for both BPR and in-batch loss
 - `EarlyStopping` dataclass — passed to `fit()` as a parameter; supports `metric="valid_loss"` (minimize) or `metric="recall_at_<k>"` (maximize); `patience` and `min_delta` are configurable; pass `early_stopping=None` to disable
 - `TwoTowerConfig.eval_during_training` — when `True` (now the default), recall@k is computed on the validation set after each training epoch and included in the history
 - `FeatureConfig` and `MultiFeatureSpec` dataclasses — exported from `twotower` public API

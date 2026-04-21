@@ -77,6 +77,7 @@ Package-level public exports: `TwoTower`, `TwoTowerConfig`, `FeatureConfig`, `Mu
 - `max_eval_users`
 - `top_k`
 - `eval_during_training` — если `True`, recall@k считается на валидации после каждой эпохи и пишется в историю (по умолчанию `True`)
+- `in_batch_loss_weight` — вес in-batch contrastive loss поверх BPR; `0.0` — выключено (по умолчанию)
 - `seed`
 - `device`
 
