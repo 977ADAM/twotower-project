@@ -19,7 +19,5 @@ class TwoTowerConfig:
     max_eval_users: int = 500
     top_k: int = 100
     eval_during_training: bool = True
-    early_stopping_patience: int = 5
-    early_stopping_min_delta: float = 1e-4
     seed: int = 42
     device: str | None = "cpu"

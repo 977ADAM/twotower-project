@@ -4,7 +4,7 @@ import twotower
 
 
 def test_top_level_exports_are_explicit_and_import_star_safe():
-    assert twotower.__all__ == ["TwoTower", "TwoTowerConfig", "FeatureConfig", "MultiFeatureSpec", "__version__"]
+    assert twotower.__all__ == ["TwoTower", "TwoTowerConfig", "FeatureConfig", "MultiFeatureSpec", "EarlyStopping", "__version__"]
 
     namespace: dict[str, object] = {}
     exec("from twotower import *", {}, namespace)
@@ -13,4 +13,5 @@ def test_top_level_exports_are_explicit_and_import_star_safe():
     assert namespace["TwoTowerConfig"] is twotower.TwoTowerConfig
     assert namespace["FeatureConfig"] is twotower.FeatureConfig
     assert namespace["MultiFeatureSpec"] is twotower.MultiFeatureSpec
+    assert namespace["EarlyStopping"] is twotower.EarlyStopping
     assert "TwoTowerBase" not in namespace

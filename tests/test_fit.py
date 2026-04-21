@@ -9,6 +9,7 @@ import torch.nn as nn
 
 from twotower.config import TwoTowerConfig
 from twotower.fit import (
+    EarlyStopping,
     FitInputs,
     PairwiseInteractionsDataset,
     TwoTowerTrainer,
@@ -155,7 +156,6 @@ def test_trainer_early_stopping_halts_before_max_epochs(interactions_data):
     config = TwoTowerConfig(
         epochs=20, batch_size=2, learning_rate=0.0,  # lr=0 → loss never improves
         observed_negative_sampling_ratio=1.0, seed=13, device="cpu",
-        early_stopping_patience=2, early_stopping_min_delta=0.0,
         eval_during_training=False,
     )
     model = StubTrainableModel(config)
@@ -169,9 +169,62 @@ def test_trainer_early_stopping_halts_before_max_epochs(interactions_data):
         num_items=3,
     )
 
-    fit_result = trainer.fit(model, fit_inputs)
+    fit_result = trainer.fit(model, fit_inputs, early_stopping=EarlyStopping(patience=2, min_delta=0.0))
 
     # first epoch sets best; epochs 2 and 3 show no improvement → stop at epoch 3
+    assert len(fit_result.history) == 3
+
+
+def test_trainer_early_stopping_on_recall_metric(interactions_data):
+    positive_df, interactions_df, _, _ = interactions_data
+    config = TwoTowerConfig(
+        epochs=10, batch_size=2, learning_rate=0.0,
+        observed_negative_sampling_ratio=1.0, seed=13, device="cpu",
+        eval_during_training=False, eval_top_ks=(10,),
+    )
+    model = StubTrainableModel(config)
+    trainer = TwoTowerTrainer(config=config, device=torch.device("cpu"))
+    fit_inputs = FitInputs(
+        train_positive_df=positive_df,
+        valid_positive_df=positive_df,
+        train_interactions_df=interactions_df,
+        valid_interactions_df=interactions_df,
+        num_users=2,
+        num_items=3,
+    )
+
+    # recall_at_k stub always returns 0.5 → no improvement → stops after patience+1 epochs
+    fit_result = trainer.fit(
+        model, fit_inputs,
+        early_stopping=EarlyStopping(patience=2, metric="recall_at_10", min_delta=0.0),
+    )
+
+    assert len(fit_result.history) == 3
+    # recall must be in history even though eval_during_training=False
+    for record in fit_result.history:
+        assert "recall_at_10" in record
+
+
+def test_trainer_no_early_stopping_runs_all_epochs(interactions_data):
+    positive_df, interactions_df, _, _ = interactions_data
+    config = TwoTowerConfig(
+        epochs=3, batch_size=2, learning_rate=0.0,
+        observed_negative_sampling_ratio=1.0, seed=13, device="cpu",
+        eval_during_training=False,
+    )
+    model = StubTrainableModel(config)
+    trainer = TwoTowerTrainer(config=config, device=torch.device("cpu"))
+    fit_inputs = FitInputs(
+        train_positive_df=positive_df,
+        valid_positive_df=positive_df,
+        train_interactions_df=interactions_df,
+        valid_interactions_df=interactions_df,
+        num_users=2,
+        num_items=3,
+    )
+
+    fit_result = trainer.fit(model, fit_inputs, early_stopping=None)
+
     assert len(fit_result.history) == 3
 
 

@@ -48,10 +48,10 @@ Packaging-контракт текущей версии:
 Публичный импорт:
 
 ```python
-from twotower import TwoTower, TwoTowerConfig, FeatureConfig, MultiFeatureSpec
+from twotower import TwoTower, TwoTowerConfig, FeatureConfig, MultiFeatureSpec, EarlyStopping
 ```
 
-Package-level public exports: `TwoTower`, `TwoTowerConfig`, `FeatureConfig`, `MultiFeatureSpec`.
+Package-level public exports: `TwoTower`, `TwoTowerConfig`, `FeatureConfig`, `MultiFeatureSpec`, `EarlyStopping`.
 `TwoTowerBase` остается внутренней реализационной деталью и не считается частью стабильного внешнего API.
 
 ## Public API
@@ -77,8 +77,6 @@ Package-level public exports: `TwoTower`, `TwoTowerConfig`, `FeatureConfig`, `Mu
 - `max_eval_users`
 - `top_k`
 - `eval_during_training` — если `True`, recall@k считается на валидации после каждой эпохи и пишется в историю (по умолчанию `True`)
-- `early_stopping_patience` — сколько эпох без улучшения `valid_loss` до остановки (по умолчанию `5`)
-- `early_stopping_min_delta` — минимальный порог улучшения `valid_loss` (по умолчанию `1e-4`)
 - `seed`
 - `device`
 
@@ -92,10 +90,11 @@ history = model.fit(
     y_train=train_df["label"],
     X_valid=valid_df[["user_id", "banner_id"]],
     y_valid=valid_df["label"],
-    users_df=users_df,           # необязательно
-    items_df=items_df,           # необязательно
+    users_df=users_df,                        # необязательно
+    items_df=items_df,                        # необязательно
     user_feature_config=user_feature_config,  # необязательно
     item_feature_config=item_feature_config,  # необязательно
+    early_stopping=EarlyStopping(patience=5, metric="valid_loss"),  # None — отключить
 )
 ```
 

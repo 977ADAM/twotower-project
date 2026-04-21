@@ -20,7 +20,7 @@ from twotower.features import (
     build_feature_tables,
 )
 from twotower.modules import ItemTower, UserTower
-from twotower.fit import FitInputs, TwoTowerTrainer, build_pairwise_loader, compute_bpr_loss
+from twotower.fit import EarlyStopping, FitInputs, TwoTowerTrainer, build_pairwise_loader, compute_bpr_loss
 from twotower.load_model import LoadedCheckpointState, TwoTowerModelLoader
 from twotower.modules import TwoTowerBase
 from twotower.predict import TwoTowerPredictor
@@ -79,6 +79,7 @@ class TwoTower(TwoTowerBase):
         items_df: pd.DataFrame | None = None,
         user_feature_config: FeatureConfig | None = None,
         item_feature_config: FeatureConfig | None = None,
+        early_stopping: EarlyStopping | None = EarlyStopping(),
     ) -> list[dict[str, float]]:
         """Fit the model on interaction pairs.
 
@@ -86,6 +87,8 @@ class TwoTower(TwoTowerBase):
         `y_train` and `y_valid` must contain the corresponding binary labels.
         Pass `users_df`, `items_df`, `user_feature_config`, and
         `item_feature_config` together to enable side features.
+        Pass `early_stopping=None` to disable early stopping and train for the
+        full number of epochs defined in `TwoTowerConfig`.
         """
         prepared_train_df, prepared_valid_df, reference_train_df, reference_valid_df = self._prepare_fit_inputs(
             X_train=X_train,
@@ -115,7 +118,7 @@ class TwoTower(TwoTowerBase):
         )
         trainer = TwoTowerTrainer(config=self.config, device=self.device)
 
-        fit_result = trainer.fit(self, fit_inputs)
+        fit_result = trainer.fit(self, fit_inputs, early_stopping=early_stopping)
         self.train_history = fit_result.history
 
         self.invalidate_item_embedding_cache()

@@ -25,6 +25,30 @@ def compute_bpr_loss(
 
 
 
+@dataclass(slots=True, frozen=True)
+class EarlyStopping:
+    """Early stopping strategy passed to fit().
+
+    Monitors `metric` after every epoch and halts training when it does not
+    improve by more than `min_delta` for `patience` consecutive epochs.
+    Metric mode (min/max) is inferred automatically: loss metrics use min,
+    recall metrics use max.
+    """
+
+    patience: int = 5
+    metric: str = "valid_loss"
+    min_delta: float = 1e-4
+
+    @property
+    def mode(self) -> str:
+        return "max" if self.metric.startswith("recall_at_") else "min"
+
+    def is_better(self, current: float, best: float) -> bool:
+        if self.mode == "max":
+            return current > best + self.min_delta
+        return current < best - self.min_delta
+
+
 @dataclass(slots=True)
 class FitInputs:
     """Prepared train/validation data for the training loop."""
@@ -223,7 +247,12 @@ class TwoTowerTrainer:
         self.config = config
         self.device = device
 
-    def fit(self, model: TrainableTwoTower, inputs: FitInputs) -> FitResult:
+    def fit(
+        self,
+        model: TrainableTwoTower,
+        inputs: FitInputs,
+        early_stopping: EarlyStopping | None = EarlyStopping(),
+    ) -> FitResult:
         """Run the full training loop and return training artifacts."""
         model.build_towers(inputs.num_users, inputs.num_items)
         model.to(self.device)
@@ -234,9 +263,15 @@ class TwoTowerTrainer:
         criterion = self.build_loss()
 
         state = FitState()
-        best_valid_loss: float | None = None
+        best_metric_value: float | None = None
         best_state_dict: dict[str, torch.Tensor] | None = None
         epochs_without_improvement = 0
+
+        # recall must be computed if requested by logging config OR by early stopping metric
+        need_recall = self.config.eval_during_training or (
+            early_stopping is not None and early_stopping.metric.startswith("recall_at_")
+        )
+
         for epoch in range(1, self.config.epochs + 1):
             train_metrics = self.train_epoch(
                 model=model,
@@ -249,7 +284,7 @@ class TwoTowerTrainer:
                 valid_loader=valid_loader,
                 criterion=criterion,
             )
-            recall_metrics = self.compute_recall_metrics(model, inputs) if self.config.eval_during_training else {}
+            recall_metrics = self.compute_recall_metrics(model, inputs) if need_recall else {}
             epoch_metrics = self.merge_epoch_metrics(
                 epoch=epoch,
                 train_metrics=train_metrics,
@@ -259,23 +294,30 @@ class TwoTowerTrainer:
             state.epoch = epoch
             state.history.append(epoch_metrics)
 
-            current_valid_loss = epoch_metrics["valid_loss"]
-            if best_valid_loss is None or current_valid_loss < best_valid_loss - self.config.early_stopping_min_delta:
-                best_valid_loss = current_valid_loss
-                best_state_dict = {
-                    name: tensor.detach().cpu().clone()
-                    for name, tensor in model.state_dict().items()
-                }
-                epochs_without_improvement = 0
-            else:
-                epochs_without_improvement += 1
+            if early_stopping is not None:
+                current_value = epoch_metrics.get(early_stopping.metric)
+                if current_value is None:
+                    raise ValueError(
+                        f"Early stopping metric '{early_stopping.metric}' not found in epoch metrics. "
+                        f"Available: {list(epoch_metrics.keys())}"
+                    )
+
+                if best_metric_value is None or early_stopping.is_better(current_value, best_metric_value):
+                    best_metric_value = current_value
+                    best_state_dict = {
+                        name: tensor.detach().cpu().clone()
+                        for name, tensor in model.state_dict().items()
+                    }
+                    epochs_without_improvement = 0
+                else:
+                    epochs_without_improvement += 1
 
             self._print_epoch(epoch, epoch_metrics)
 
-            if epochs_without_improvement >= self.config.early_stopping_patience:
+            if early_stopping is not None and epochs_without_improvement >= early_stopping.patience:
                 console.print(
                     f"Early stopping at epoch {epoch} "
-                    f"(no improvement in valid_loss for {self.config.early_stopping_patience} epochs)"
+                    f"(no improvement in {early_stopping.metric} for {early_stopping.patience} epochs)"
                 )
                 break
 

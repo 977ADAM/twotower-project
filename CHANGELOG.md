@@ -11,7 +11,7 @@
 - Added `ruff`, `mypy`, `pytest` to `[project.optional-dependencies] dev`
 
 ### Added
-- Early stopping: `TwoTowerConfig.early_stopping_patience` (default `5`) and `early_stopping_min_delta` (default `1e-4`) — training halts when `valid_loss` stops improving
+- `EarlyStopping` dataclass — passed to `fit()` as a parameter; supports `metric="valid_loss"` (minimize) or `metric="recall_at_<k>"` (maximize); `patience` and `min_delta` are configurable; pass `early_stopping=None` to disable
 - `TwoTowerConfig.eval_during_training` — when `True` (now the default), recall@k is computed on the validation set after each training epoch and included in the history
 - `FeatureConfig` and `MultiFeatureSpec` dataclasses — exported from `twotower` public API
 - `src/data.py`: `bucketize_age` utility for application-side age bucketing
