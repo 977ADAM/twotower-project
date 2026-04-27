@@ -4,7 +4,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
-from config import Config
+from examples.src.config import Config
 from twotower import TwoTower
 
 app = FastAPI(
