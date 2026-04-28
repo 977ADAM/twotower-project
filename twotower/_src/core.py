@@ -86,7 +86,7 @@ class TwoTower(TwoTowerBase):
             X_train=train_df.drop(columns=["clicks"]),
             y_train=train_df["clicks"],
             X_valid=valid_df.drop(columns=["clicks"]),
-            y_valid=valid_df["clicks"],
+            y_valid=valid_df["clicks"], 
         )
         recommendations = model.predict(user_ids=[1, 2, 3], top_k=10)
         metrics = model.evaluate(test_df)
