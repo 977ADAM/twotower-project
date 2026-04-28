@@ -1,5 +1,10 @@
-.PHONE:
+.PHONY: lint typecheck test
 
-run-lint:
-	@ruff check src tests && \
-	mypy src tests \
+lint:
+	ruff check twotower/ tests/
+
+typecheck:
+	mypy twotower/
+
+test:
+	pytest
