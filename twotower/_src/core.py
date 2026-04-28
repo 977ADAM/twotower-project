@@ -11,20 +11,20 @@ import torch.nn.functional as F
 from rich.console import Console
 from torch.utils.data import DataLoader
 
-from twotower.src.backend.config import TwoTowerConfig
-from twotower.src.evaluate import EvaluateInputs, TwoTowerEvaluator
-from twotower.src.features import (
+from twotower._src.backend.config import TwoTowerConfig
+from twotower._src.evaluate import EvaluateInputs, TwoTowerEvaluator
+from twotower._src.features import (
     FeatureConfig,
     FeatureMetadata,
     FeatureTables,
     build_feature_tables,
 )
-from twotower.src.modules import ItemTower, UserTower
-from twotower.src.fit import EarlyStopping, FitInputs, NegativeSampling, TwoTowerTrainer, build_pairwise_loader, compute_bpr_loss
-from twotower.src.load_model import LoadedCheckpointState, TwoTowerModelLoader
-from twotower.src.modules import TwoTowerBase
-from twotower.src.predict import TwoTowerPredictor
-from twotower.src.preprocessing import (
+from twotower._src.modules import ItemTower, UserTower
+from twotower._src.fit import EarlyStopping, FitInputs, NegativeSampling, TwoTowerTrainer, build_pairwise_loader, compute_bpr_loss
+from twotower._src.load_model import LoadedCheckpointState, TwoTowerModelLoader
+from twotower._src.modules import TwoTowerBase
+from twotower._src.predict import TwoTowerPredictor
+from twotower._src.preprocessing import (
     build_evaluation_reference_data,
     build_id_mappings,
     build_labeled_interactions,
@@ -33,7 +33,8 @@ from twotower.src.preprocessing import (
     prepare_evaluation_inputs,
     prepare_retrieval_pairs,
 )
-from twotower.src.save_model import TwoTowerModelSaver
+from twotower._src.save_model import TwoTowerModelSaver
+from twotower._src.utils.traceback_utils import filter_traceback
 
 console = Console()
 
@@ -69,6 +70,7 @@ class TwoTower(TwoTowerBase):
         self._model_saver = TwoTowerModelSaver()
         self._model_loader = TwoTowerModelLoader()
 
+    @filter_traceback
     def fit(
         self,
         *,
@@ -132,6 +134,7 @@ class TwoTower(TwoTowerBase):
 
         return self.train_history
 
+    @filter_traceback
     def predict(
         self,
         user_ids: Sequence[int] | None = None,
@@ -157,6 +160,7 @@ class TwoTower(TwoTowerBase):
             strict=strict,
         )
 
+    @filter_traceback
     def evaluate(
         self,
         X_test: pd.DataFrame,
@@ -172,11 +176,13 @@ class TwoTower(TwoTowerBase):
         console.print(metrics)
         return metrics
 
+    @filter_traceback
     def save_model(self, path: str | PathLike[str]) -> None:
         """Save the fitted model checkpoint to disk."""
         target_path = self._model_saver.save_model(self, path)
         console.print(f"Model saved to {target_path}")
 
+    @filter_traceback
     def load_model(self, path: str | PathLike[str]) -> "TwoTower":
         """Load a model checkpoint from disk and return `self`."""
         self._model_loader.load_model(self, path)

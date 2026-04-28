@@ -1,8 +1,8 @@
 import pandas as pd
 from rich.console import Console
 from examples.src.config import Config
-from twotower.src.data import prepare_interactions as prepare_twotower_interactions
-from twotower.src.data import split_interactions as split_twotower_interactions
+from twotower._src.data import prepare_interactions as prepare_twotower_interactions
+from twotower._src.data import split_interactions as split_twotower_interactions
 
 
 def bucketize_age(values: pd.Series) -> pd.Series:

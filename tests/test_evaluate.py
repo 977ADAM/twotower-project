@@ -3,8 +3,8 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from twotower.src.backend.config import TwoTowerConfig
-from twotower.src.evaluate import EvaluateInputs, TwoTowerEvaluator
+from twotower._src.backend.config import TwoTowerConfig
+from twotower._src.evaluate import EvaluateInputs, TwoTowerEvaluator
 
 
 class StubEvaluableModel:

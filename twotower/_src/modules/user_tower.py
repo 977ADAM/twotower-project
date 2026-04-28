@@ -2,8 +2,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from twotower.src.backend.config import TwoTowerConfig
-from twotower.src.features import FeatureMetadata, FeatureTables
+from twotower._src.backend.config import TwoTowerConfig
+from twotower._src.features import FeatureMetadata, FeatureTables
 
 
 class UserTower(nn.Module):

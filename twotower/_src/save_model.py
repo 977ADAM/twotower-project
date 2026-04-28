@@ -7,7 +7,7 @@ from typing import Protocol
 
 import torch
 
-from twotower.src.backend.config import TwoTowerConfig
+from twotower._src.backend.config import TwoTowerConfig
 
 
 class SaveableTwoTower(Protocol):

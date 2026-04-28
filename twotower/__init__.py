@@ -1,14 +1,18 @@
-from twotower.src.version import __version__, version
-from twotower.src.backend.config import TwoTowerConfig
-from twotower.src.features import FeatureConfig, MultiFeatureSpec
-from twotower.src.fit import EarlyStopping, NegativeSampling
-from twotower.src.core import TwoTower
+from twotower._src.version import __version__ as __version__
+from twotower._src.version import version as version
+from twotower._src.backend.config import TwoTowerConfig as TwoTowerConfig
+from twotower._src.features import FeatureConfig as FeatureConfig
+from twotower._src.features import MultiFeatureSpec as MultiFeatureSpec
+from twotower._src.fit import EarlyStopping as EarlyStopping
+from twotower._src.fit import NegativeSampling as NegativeSampling
+from twotower._src.core import TwoTower as TwoTower
 
-import os
-
-__path__.append(os.path.join(os.path.dirname(__file__), "api"))  # noqa: F405
-
-from twotower.api import *  # noqa: F403, E402
-from twotower.api import __version__  # noqa: E402
-
-del os
+__all__ = [
+    "TwoTower",
+    "TwoTowerConfig",
+    "FeatureConfig",
+    "MultiFeatureSpec",
+    "EarlyStopping",
+    "NegativeSampling",
+    "__version__",
+]

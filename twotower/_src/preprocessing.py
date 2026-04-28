@@ -5,8 +5,8 @@ from typing import Sequence, TypeAlias
 
 import pandas as pd
 
-from twotower.src.backend.config import TwoTowerConfig
-from twotower.src.data import normalize_interactions
+from twotower._src.backend.config import TwoTowerConfig
+from twotower._src.data import normalize_interactions
 
 TargetLike: TypeAlias = pd.Series | Sequence[float]
 
