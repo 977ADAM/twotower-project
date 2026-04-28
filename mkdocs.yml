@@ -2,8 +2,8 @@ site_name: twotower
 dev_addr: "127.0.0.1:8080"
 site_description: Two-tower retrieval model for recommendations
 site_url: https://977adam.github.io/twotower
-repo_url: https://github.com/977ADAM/twotower
-repo_name: 977ADAM/twotower
+repo_url: https://github.com/977ADAM/twotower-project
+repo_name: 977ADAM/twotower-project
 
 theme:
   name: material
