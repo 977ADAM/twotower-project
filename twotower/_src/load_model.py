@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 from dataclasses import dataclass
 from os import PathLike
 from pathlib import Path
@@ -91,7 +92,9 @@ class TwoTowerModelLoader:
         model: LoadableTwoTower,
         checkpoint: dict[str, object],
     ) -> LoadedCheckpointState:
-        config = TwoTowerConfig(**checkpoint["config"])
+        known_fields = {f.name for f in dataclasses.fields(TwoTowerConfig)}
+        config_dict = {k: v for k, v in dict(checkpoint["config"]).items() if k in known_fields}
+        config = TwoTowerConfig(**config_dict)
         return LoadedCheckpointState(
             config=config,
             device=model.resolve_device(config.device),

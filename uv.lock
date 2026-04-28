@@ -1636,7 +1636,6 @@ dependencies = [
     { name = "numpy" },
     { name = "pandas" },
     { name = "rich" },
-    { name = "ruff" },
     { name = "torch" },
 ]
 
@@ -1663,7 +1662,6 @@ requires-dist = [
     { name = "pydantic", marker = "extra == 'app'", specifier = ">=2.13.2" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
     { name = "rich", specifier = ">=15.0.0" },
-    { name = "ruff", specifier = ">=0.15.11" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.11.0" },
     { name = "torch", specifier = ">=2.11.0" },
     { name = "uvicorn", marker = "extra == 'app'", specifier = ">=0.44.0" },

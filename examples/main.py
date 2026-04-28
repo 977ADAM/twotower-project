@@ -3,7 +3,7 @@ from rich.console import Console
 
 from examples.src.data import bucketize_age, load_training_frames
 from examples.src.config import Config
-from twotower import TwoTower, TwoTowerConfig, FeatureConfig, MultiFeatureSpec, EarlyStopping, NegativeSampling
+from twotower import TwoTower, FeatureConfig, MultiFeatureSpec, EarlyStopping, NegativeSampling
 
 console = Console()
 
@@ -52,11 +52,9 @@ def main():
     )
 
     model = TwoTower(
-        TwoTowerConfig(
-            max_samples=config.max_samples,
-            top_k=config.top_k,
-            seed=config.seed,
-        )
+        max_samples=config.max_samples,
+        top_k=config.top_k,
+        seed=config.seed,
     )
     history = model.fit(
         X_train=train_df.loc[:, ["user_id", "banner_id"]].copy(),

@@ -23,17 +23,12 @@ def prepare_interactions(
     interactions_df: pd.DataFrame,
     user_id_to_idx: dict[int, int],
     item_id_to_idx: dict[int, int],
-    max_samples: int | None = None,
-    seed: int = 42,
 ) -> pd.DataFrame:
-    del max_samples, seed
-
     interactions = normalize_interactions(interactions_df)
     interactions = interactions[
         interactions["user_id"].isin(user_id_to_idx)
         & interactions["banner_id"].isin(item_id_to_idx)
     ]
-
     return interactions.sort_values("event_date").reset_index(drop=True)
 
 

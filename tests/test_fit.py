@@ -50,6 +50,9 @@ class StubTrainableModel(nn.Module):
     def score_pairs(self, user_input: torch.Tensor, item_input: torch.Tensor) -> torch.Tensor:
         return (self.encode_users(user_input) * self.encode_items(item_input)).sum(dim=-1)
 
+    def retrieval_logits(self, user_input: torch.Tensor, item_input: torch.Tensor) -> torch.Tensor:
+        return (self.encode_users(user_input) @ self.encode_items(item_input).T) / self.config.retrieval_temperature
+
     def recall_at_k(self, evaluation_df: pd.DataFrame, top_k: int, exclude_seen: bool = True) -> float:
         self.recall_at_k_calls.append((top_k,))
         return 0.5

@@ -257,6 +257,13 @@ class TrainableTwoTower(Protocol):
     ) -> torch.Tensor:
         ...
 
+    def retrieval_logits(
+        self,
+        user_input: torch.Tensor,
+        item_input: torch.Tensor,
+    ) -> torch.Tensor:
+        ...
+
     def recall_at_k(self, evaluation_df: pd.DataFrame, top_k: int, exclude_seen: bool = True) -> float:
         ...
 
@@ -416,12 +423,8 @@ class TwoTowerTrainer:
 
             optimizer.zero_grad()
 
-            user_embs = model.encode_users(user_batch)
-            pos_item_embs = model.encode_items(pos_item_batch)
-            neg_item_embs = model.encode_items(neg_item_batch)
-
-            positive_scores = (user_embs * pos_item_embs).sum(dim=-1)
-            negative_scores = (user_embs * neg_item_embs).sum(dim=-1)
+            positive_scores = model.score_pairs(user_batch, pos_item_batch)
+            negative_scores = model.score_pairs(user_batch, neg_item_batch)
             loss = compute_bpr_loss(
                 positive_scores=positive_scores,
                 negative_scores=negative_scores,
@@ -429,7 +432,7 @@ class TwoTowerTrainer:
             )
 
             if use_in_batch:
-                logits = user_embs @ pos_item_embs.T / self.config.retrieval_temperature
+                logits = model.retrieval_logits(user_batch, pos_item_batch)
                 labels = torch.arange(user_batch.size(0), device=self.device)
                 loss = loss + negative_sampling.in_batch_loss_weight * torch.nn.functional.cross_entropy(logits, labels)
 
@@ -490,7 +493,7 @@ class TwoTowerTrainer:
 
         metrics: dict[str, float] = {}
         for k in eval_top_ks:
-            metrics[f"recall_at_{k}"] = model.recall_at_k(inputs.valid_interactions_df, k, exclude_seen=False)
+            metrics[f"recall_at_{k}"] = model.recall_at_k(inputs.valid_interactions_df, k, exclude_seen=True)
         return metrics
 
     def merge_epoch_metrics(

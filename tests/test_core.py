@@ -6,7 +6,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from twotower import EarlyStopping, NegativeSampling, TwoTower, TwoTowerConfig
+from twotower import EarlyStopping, NegativeSampling, TwoTower
 
 
 @pytest.fixture
@@ -27,7 +27,7 @@ def small_interactions():
 @pytest.fixture
 def fitted_model(small_interactions):
     train, valid, _ = small_interactions
-    model = TwoTower(TwoTowerConfig(epochs=2, batch_size=8, eval_during_training=False, device="cpu", seed=0))
+    model = TwoTower(epochs=2, batch_size=8, eval_during_training=False, device="cpu", seed=0)
     model.fit(
         X_train=train[["user_id", "banner_id"]],
         y_train=train["label"],
@@ -56,8 +56,7 @@ def test_fit_populates_id_mappings(fitted_model):
 def test_fit_with_early_stopping_can_halt_early(small_interactions):
     train, valid, _ = small_interactions
     # lr=0 → loss never changes → early stopping triggers after patience+1 epochs
-    config = TwoTowerConfig(epochs=20, batch_size=8, learning_rate=0.0, eval_during_training=False, device="cpu", seed=0)
-    model = TwoTower(config)
+    model = TwoTower(epochs=20, batch_size=8, learning_rate=0.0, eval_during_training=False, device="cpu", seed=0)
     history = model.fit(
         X_train=train[["user_id", "banner_id"]],
         y_train=train["label"],

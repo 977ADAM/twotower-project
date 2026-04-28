@@ -3,7 +3,8 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from twotower._src.data import normalize_interactions, split_interactions
+from twotower import split_interactions
+from twotower._src.data import normalize_interactions
 
 
 def _make_interactions(dates: list[str], clicks: list[int] | None = None) -> pd.DataFrame:

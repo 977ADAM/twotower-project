@@ -42,10 +42,42 @@ TargetLike: TypeAlias = pd.Series | Sequence[float]
 
 
 class TwoTower(TwoTowerBase):
-    def __init__(self, config: TwoTowerConfig | None = None):
-        if config is None:
-            config = TwoTowerConfig()
-
+    def __init__(
+        self,
+        *,
+        user_embedding_dim: int = 64,
+        item_embedding_dim: int = 64,
+        side_feature_embedding_dim: int = 8,
+        hidden_dim: int = 64,
+        retrieval_temperature: float = 0.1,
+        learning_rate: float = 1e-3,
+        batch_size: int = 2048,
+        epochs: int = 25,
+        max_samples: int | None = 250_000,
+        eval_top_ks: tuple[int, ...] = (50, 100, 300),
+        max_eval_users: int = 500,
+        top_k: int = 100,
+        eval_during_training: bool = True,
+        seed: int = 42,
+        device: str | None = "cpu",
+    ):
+        config = TwoTowerConfig(
+            user_embedding_dim=user_embedding_dim,
+            item_embedding_dim=item_embedding_dim,
+            side_feature_embedding_dim=side_feature_embedding_dim,
+            hidden_dim=hidden_dim,
+            retrieval_temperature=retrieval_temperature,
+            learning_rate=learning_rate,
+            batch_size=batch_size,
+            epochs=epochs,
+            max_samples=max_samples,
+            eval_top_ks=eval_top_ks,
+            max_eval_users=max_eval_users,
+            top_k=top_k,
+            eval_during_training=eval_during_training,
+            seed=seed,
+            device=device,
+        )
         super().__init__(config)
         self.config = config
         self.device = self.resolve_device(config.device)
@@ -543,7 +575,7 @@ class TwoTower(TwoTowerBase):
         self._item_feature_metadata = self._item_feature_tables.metadata
 
     def _refresh_evaluation_reference_data(self) -> None:
-        seen, popularity = build_evaluation_reference_data(self.train_df, self.valid_df)
+        seen, popularity = build_evaluation_reference_data(self.train_df, None)
         self._seen_items_by_user = seen
         self._train_positive_item_ids_by_popularity = popularity
 
