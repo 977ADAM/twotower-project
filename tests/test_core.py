@@ -75,7 +75,7 @@ def test_predict_returns_top_k_items_per_user(fitted_model):
     assert set(predictions.keys()) == {1, 2}
     for recs in predictions.values():
         assert len(recs) == 3
-        assert all("banner_id" in r and "score" in r for r in recs)
+        assert all("banner_id" in r and "score" in r for r in recs)  # default item_col
 
 
 def test_predict_excludes_seen_items_by_default(fitted_model):

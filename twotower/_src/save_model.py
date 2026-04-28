@@ -14,6 +14,8 @@ class SaveableTwoTower(Protocol):
     """Minimal model contract required by the checkpoint save module."""
 
     config: TwoTowerConfig
+    user_col: str
+    item_col: str
     user_id_to_idx: dict[int, int]
     item_id_to_idx: dict[int, int]
     idx_to_user_id: list[int]
@@ -49,6 +51,8 @@ class TwoTowerModelSaver:
 
         checkpoint = {
             "config": asdict(model.config),
+            "user_col": model.user_col,
+            "item_col": model.item_col,
             "state_dict": model.state_dict(),
             "user_id_to_idx": model.user_id_to_idx,
             "item_id_to_idx": model.item_id_to_idx,

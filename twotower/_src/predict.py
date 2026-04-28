@@ -16,6 +16,7 @@ class PredictableTwoTower(Protocol):
     item_id_to_idx: dict[int, int]
     idx_to_user_id: list[int]
     idx_to_item_id: list[int]
+    item_col: str
 
     def eval(self):
         ...
@@ -71,10 +72,7 @@ class TwoTowerPredictor:
                 excluded_item_ids=seen_items_by_user.get(user_id, set()),
             )
             predictions[user_id] = [
-                {
-                    "banner_id": item_id,
-                    "score": score,
-                }
+                {model.item_col: item_id, "score": score}
                 for item_id, score in scored_items
             ]
 

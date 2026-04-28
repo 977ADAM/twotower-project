@@ -1,0 +1,58 @@
+site_name: twotower
+dev_addr: "127.0.0.1:8080"
+site_description: Two-tower retrieval model for recommendations
+site_url: https://977adam.github.io/twotower
+repo_url: https://github.com/977ADAM/twotower
+repo_name: 977ADAM/twotower
+
+theme:
+  name: material
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - search.highlight
+    - content.code.copy
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          options:
+            docstring_style: google
+            show_source: false
+            show_root_heading: true
+            show_symbol_type_heading: true
+            members_order: source
+
+nav:
+  - Home: index.md
+  - User Guide:
+    - Data Preparation: guide/data.md
+    - Training: guide/training.md
+    - Evaluation: guide/evaluation.md
+    - Prediction: guide/prediction.md
+  - API Reference: api.md
+
+markdown_extensions:
+  - admonition
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - tables

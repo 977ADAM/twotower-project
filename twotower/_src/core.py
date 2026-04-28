@@ -42,13 +42,69 @@ TargetLike: TypeAlias = pd.Series | Sequence[float]
 
 
 class TwoTower(TwoTowerBase):
+    """Two-tower retrieval model with a scikit-learn–style API.
+
+    Both towers share the same MLP architecture and embed users and items
+    into a common `hidden_dim`-dimensional space. Similarity is measured
+    with a dot product. Training minimises BPR loss with optional in-batch
+    InfoNCE contrastive loss.
+
+    Args:
+        user_col: Column name for user IDs in the interaction DataFrames.
+        item_col: Column name for item IDs in the interaction DataFrames.
+        user_embedding_dim: Dimensionality of the learned user ID embedding.
+        item_embedding_dim: Dimensionality of the learned item ID embedding.
+        side_feature_embedding_dim: Dimensionality of each side-feature embedding.
+        hidden_dim: Output embedding size for both towers.
+        tower_dims: Hidden layer sizes for the MLP inside each tower.
+            Each layer is followed by BatchNorm1d, ReLU, and optional Dropout.
+            Pass an empty tuple ``()`` for a single linear projection.
+        dropout: Dropout rate applied after each hidden layer in the MLP.
+            Must be in ``[0, 1)``.
+        retrieval_temperature: Temperature for the in-batch InfoNCE loss.
+        learning_rate: Adam optimizer learning rate.
+        batch_size: Mini-batch size for training.
+        epochs: Maximum number of training epochs.
+        max_samples: Cap on the number of positive training pairs per epoch.
+            ``None`` uses all available pairs.
+        eval_top_ks: Top-k values used when computing recall metrics.
+        max_eval_users: Maximum number of users sampled for evaluation.
+        top_k: Default number of recommendations returned by ``predict``.
+        eval_during_training: Whether to compute recall metrics after each epoch.
+        seed: Random seed for reproducibility.
+        device: PyTorch device string (``"cpu"``, ``"cuda"``), or ``None`` to
+            auto-detect.
+
+    Example:
+        ```python
+        from twotower import TwoTower, split_interactions
+
+        train_df, valid_df, test_df = split_interactions(interactions_df)
+
+        model = TwoTower(epochs=10, tower_dims=(256, 128))
+        model.fit(
+            X_train=train_df.drop(columns=["clicks"]),
+            y_train=train_df["clicks"],
+            X_valid=valid_df.drop(columns=["clicks"]),
+            y_valid=valid_df["clicks"],
+        )
+        recommendations = model.predict(user_ids=[1, 2, 3], top_k=10)
+        metrics = model.evaluate(test_df)
+        model.save_model("model.pth")
+        ```
+    """
+
     def __init__(
         self,
         *,
+        user_col: str = "user_id",
+        item_col: str = "banner_id",
         user_embedding_dim: int = 64,
         item_embedding_dim: int = 64,
         side_feature_embedding_dim: int = 8,
         hidden_dim: int = 64,
+        tower_dims: tuple[int, ...] = (256, 128),
+        dropout: float = 0.0,
         retrieval_temperature: float = 0.1,
         learning_rate: float = 1e-3,
         batch_size: int = 2048,
@@ -66,6 +122,8 @@ class TwoTower(TwoTowerBase):
             item_embedding_dim=item_embedding_dim,
             side_feature_embedding_dim=side_feature_embedding_dim,
             hidden_dim=hidden_dim,
+            tower_dims=tower_dims,
+            dropout=dropout,
             retrieval_temperature=retrieval_temperature,
             learning_rate=learning_rate,
             batch_size=batch_size,
@@ -80,6 +138,8 @@ class TwoTower(TwoTowerBase):
         )
         super().__init__(config)
         self.config = config
+        self.user_col = user_col
+        self.item_col = item_col
         self.device = self.resolve_device(config.device)
         self.user_id_to_idx: dict[int, int] = {}
         self.item_id_to_idx: dict[int, int] = {}
@@ -119,12 +179,26 @@ class TwoTower(TwoTowerBase):
     ) -> list[dict[str, float]]:
         """Fit the model on interaction pairs.
 
-        `X_train` and `X_valid` must contain `user_id` and `banner_id` columns.
-        `y_train` and `y_valid` must contain the corresponding binary labels.
-        Pass `users_df`, `items_df`, `user_feature_config`, and
-        `item_feature_config` together to enable side features.
-        Pass `early_stopping=None` to disable early stopping and train for the
-        full number of epochs defined in `TwoTowerConfig`.
+        Args:
+            X_train: Training interactions. Must contain the columns named by
+                ``user_col`` and ``item_col``.
+            y_train: Binary labels for ``X_train`` (positive = 1, negative = 0).
+                May be a pandas Series or any sequence of floats.
+            X_valid: Validation interactions in the same format as ``X_train``.
+            y_valid: Binary labels for ``X_valid``.
+            users_df: Side-feature table for users. Must be provided together
+                with ``items_df`` and the feature config arguments.
+            items_df: Side-feature table for items.
+            user_feature_config: Declares which columns in ``users_df`` to encode
+                as side features.
+            item_feature_config: Declares which columns in ``items_df`` to encode
+                as side features.
+            negative_sampling: Strategy for drawing negative examples.
+            early_stopping: Early stopping configuration. Pass ``None`` to train
+                for the full number of epochs.
+
+        Returns:
+            A list of per-epoch metric dicts (train loss, valid loss, recall@k, …).
         """
         prepared_train_df, prepared_valid_df, reference_train_df, reference_valid_df = self._prepare_fit_inputs(
             X_train=X_train,
@@ -177,10 +251,20 @@ class TwoTower(TwoTowerBase):
     ) -> dict[int, list[dict[str, float]]]:
         """Return top-k item recommendations for the requested users.
 
-        If `user_ids` is omitted, predictions are generated for up to 10 known
-        users. If `item_ids` is omitted, all known items are used as candidates.
-        Unknown ids are skipped unless `strict=True`. Seen items are excluded by
-        default.
+        Args:
+            user_ids: User IDs to generate recommendations for. If ``None``,
+                up to 10 known users are used.
+            item_ids: Candidate item IDs. If ``None``, all known items are used.
+            top_k: Number of items to return per user. Defaults to the model's
+                ``top_k`` config value.
+            exclude_seen: Whether to exclude items the user interacted with
+                during training.
+            strict: If ``True``, raises ``KeyError`` for unknown user or item IDs.
+                If ``False``, they are silently skipped.
+
+        Returns:
+            A dict mapping each user ID to a ranked list of
+            ``{item_col: item_id, "score": float}`` dicts.
         """
         self.ensure_fitted()
         return self._predictor.predict(
@@ -198,11 +282,17 @@ class TwoTower(TwoTowerBase):
         X_test: pd.DataFrame,
         top_k: int | None = None,
     ) -> dict[str, float]:
-        """Evaluate the model on interaction pairs.
+        """Evaluate the model on a held-out test set.
 
-        `X_test` must contain `user_id` and `banner_id` columns. If a `clicks`
-        column is present, labels are derived from it. If a `label` column is
-        present, it is used directly.
+        Args:
+            X_test: Test interactions. Must contain the user and item ID columns.
+                Labels are derived from a ``clicks`` column (``clicks > 0`` → 1)
+                or a ``label`` column if present.
+            top_k: Additional top-k value to evaluate at, on top of
+                ``eval_top_ks``.
+
+        Returns:
+            A dict of recall@k and popularity_recall@k metrics.
         """
         metrics = self._evaluator.evaluate(self, X_test, top_k=top_k)
         console.print(metrics)
@@ -235,6 +325,8 @@ class TwoTower(TwoTowerBase):
 
     def apply_loaded_checkpoint_state(self, state: LoadedCheckpointState) -> None:
         self.config = state.config
+        self.user_col = state.user_col
+        self.item_col = state.item_col
         self.device = state.device
         self.user_id_to_idx = state.user_id_to_idx
         self.item_id_to_idx = state.item_id_to_idx
@@ -251,7 +343,7 @@ class TwoTower(TwoTowerBase):
         self._item_feature_metadata = state.item_feature_metadata
 
     def build_evaluate_inputs(self, X_test: pd.DataFrame) -> EvaluateInputs:
-        test_input_df = prepare_evaluation_inputs(X_test)
+        test_input_df = prepare_evaluation_inputs(X_test, self.user_col, self.item_col)
         prepared_test_df = normalize_and_filter_interactions(
             test_input_df,
             user_id_to_idx=self.user_id_to_idx,
@@ -277,7 +369,7 @@ class TwoTower(TwoTowerBase):
             positive_test_df=positive_test_df,
             input_row_count=len(test_input_df),
             unknown_user_row_count=int((~test_input_df["user_id"].isin(self.user_id_to_idx)).sum()),
-            unknown_item_row_count=int((~test_input_df["banner_id"].isin(self.item_id_to_idx)).sum()),
+            unknown_item_row_count=int((~test_input_df["banner_id"].isin(self.item_id_to_idx)).sum()),  # internal name after boundary rename
         )
 
     def make_loader(
@@ -493,8 +585,8 @@ class TwoTower(TwoTowerBase):
         X_valid: pd.DataFrame,
         y_valid: TargetLike,
     ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-        train_df = build_labeled_interactions(X_train, y_train, split_name="train")
-        valid_df = build_labeled_interactions(X_valid, y_valid, split_name="valid")
+        train_df = build_labeled_interactions(X_train, y_train, split_name="train", user_col=self.user_col, item_col=self.item_col)
+        valid_df = build_labeled_interactions(X_valid, y_valid, split_name="valid", user_col=self.user_col, item_col=self.item_col)
 
         mappings = build_id_mappings(train_df)
         self.user_id_to_idx = mappings.user_id_to_idx
@@ -563,13 +655,13 @@ class TwoTower(TwoTowerBase):
             df=users_df,
             entity_ids=self.idx_to_user_id,
             config=user_feature_config,
-            id_column="user_id",
+            id_column=self.user_col,
         )
         self._item_feature_tables = build_feature_tables(
             df=items_df,
             entity_ids=self.idx_to_item_id,
             config=item_feature_config,
-            id_column="banner_id",
+            id_column=self.item_col,
         )
         self._user_feature_metadata = self._user_feature_tables.metadata
         self._item_feature_metadata = self._item_feature_tables.metadata

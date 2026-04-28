@@ -7,6 +7,8 @@ class TwoTowerConfig:
     item_embedding_dim: int = 64
     side_feature_embedding_dim: int = 8
     hidden_dim: int = 64
+    tower_dims: tuple[int, ...] = (256, 128)
+    dropout: float = 0.0
     retrieval_temperature: float = 0.1
     learning_rate: float = 1e-3
     batch_size: int = 2048
@@ -28,6 +30,10 @@ class TwoTowerConfig:
             raise ValueError(f"`side_feature_embedding_dim` must be positive, got {self.side_feature_embedding_dim}.")
         if self.hidden_dim <= 0:
             raise ValueError(f"`hidden_dim` must be positive, got {self.hidden_dim}.")
+        if any(d <= 0 for d in self.tower_dims):
+            raise ValueError(f"`tower_dims` must contain only positive integers, got {self.tower_dims}.")
+        if not 0.0 <= self.dropout < 1.0:
+            raise ValueError(f"`dropout` must be in [0, 1), got {self.dropout}.")
         if self.retrieval_temperature <= 0:
             raise ValueError(f"`retrieval_temperature` must be positive, got {self.retrieval_temperature}.")
         if self.learning_rate < 0:

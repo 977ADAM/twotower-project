@@ -203,6 +203,7 @@ def build_pairwise_loader(
     shuffle: bool,
     observed_negative_sampling_ratio: float,
     seed: int,
+    drop_last: bool = False,
 ) -> DataLoader:
     dataset = PairwiseInteractionsDataset(
         positive_df=positive_df,
@@ -213,7 +214,7 @@ def build_pairwise_loader(
         observed_negative_sampling_ratio=observed_negative_sampling_ratio,
         seed=seed,
     )
-    return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle)
+    return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, drop_last=drop_last)
 
 
 class TrainableTwoTower(Protocol):
@@ -379,6 +380,7 @@ class TwoTowerTrainer:
             num_items=inputs.num_items,
             batch_size=self.config.batch_size,
             shuffle=True,
+            drop_last=True,
             observed_negative_sampling_ratio=negative_sampling.observed_ratio,
             seed=self.config.seed,
         )

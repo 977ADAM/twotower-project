@@ -8,8 +8,9 @@ from twotower._src.predict import TwoTowerPredictor
 
 
 class StubPredictableModel:
-    def __init__(self):
+    def __init__(self, item_col: str = "banner_id"):
         self.config = TwoTowerConfig(top_k=2)
+        self.item_col = item_col
         self.user_id_to_idx = {1: 0, 2: 1}
         self.item_id_to_idx = {10: 0, 20: 1, 30: 2}
         self.idx_to_user_id = [1, 2]
@@ -55,6 +56,15 @@ def test_predict_deduplicates_ids_and_skips_unknown_ids_by_default(predictor_set
 
     assert list(predictions.keys()) == [1]
     assert [row["banner_id"] for row in predictions[1]] == [20, 30]
+
+
+def test_predict_uses_custom_item_col_in_output():
+    model = StubPredictableModel(item_col="product_id")
+    predictor = TwoTowerPredictor()
+    predictions = predictor.predict(model, user_ids=[1], top_k=2)
+
+    assert all("product_id" in row for row in predictions[1])
+    assert all("banner_id" not in row for row in predictions[1])
 
 
 def test_predict_strict_raises_for_unknown_ids(predictor_setup):

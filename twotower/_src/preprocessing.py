@@ -23,14 +23,16 @@ def build_labeled_interactions(
     X: pd.DataFrame,
     y: TargetLike,
     split_name: str,
+    user_col: str = "user_id",
+    item_col: str = "banner_id",
 ) -> pd.DataFrame:
     """Validate X and y, combine into a labeled interactions DataFrame."""
     if not isinstance(X, pd.DataFrame):
         raise TypeError(
             f"{split_name} features must be a pandas DataFrame with "
-            "'user_id' and 'banner_id' columns."
+            f"'{user_col}' and '{item_col}' columns."
         )
-    required_columns = {"user_id", "banner_id"}
+    required_columns = {user_col, item_col}
     missing_columns = required_columns.difference(X.columns)
     if missing_columns:
         raise ValueError(
@@ -44,7 +46,8 @@ def build_labeled_interactions(
             f"{len(X)} != {len(y_series)}"
         )
 
-    prepared_df = X.loc[:, ["user_id", "banner_id"]].copy()
+    prepared_df = X.loc[:, [user_col, item_col]].copy()
+    prepared_df = prepared_df.rename(columns={user_col: "user_id", item_col: "banner_id"})
     prepared_df["label"] = y_series.to_numpy()
     return prepared_df.reset_index(drop=True)
 
@@ -146,23 +149,29 @@ def prepare_retrieval_pairs(
     return positive_interactions.reset_index(drop=True)
 
 
-def prepare_evaluation_inputs(X_test: pd.DataFrame) -> pd.DataFrame:
+def prepare_evaluation_inputs(
+    X_test: pd.DataFrame,
+    user_col: str = "user_id",
+    item_col: str = "banner_id",
+) -> pd.DataFrame:
     """Validate and normalize evaluation DataFrame to (event_date, user_id, banner_id, label) format."""
     if not isinstance(X_test, pd.DataFrame):
         raise TypeError(
             "Evaluation features must be a pandas DataFrame with "
-            "'user_id' and 'banner_id' columns."
+            f"'{user_col}' and '{item_col}' columns."
         )
 
-    required_columns = {"user_id", "banner_id"}
+    required_columns = {user_col, item_col}
     missing_columns = required_columns.difference(X_test.columns)
     if missing_columns:
         raise ValueError(
             f"Evaluation features are missing required columns: {sorted(missing_columns)}"
         )
 
-    if "label" in X_test.columns:
-        evaluation_df = X_test.copy()
+    evaluation_df = X_test.copy()
+    evaluation_df = evaluation_df.rename(columns={user_col: "user_id", item_col: "banner_id"})
+
+    if "label" in evaluation_df.columns:
         evaluation_df["user_id"] = evaluation_df["user_id"].astype(int)
         evaluation_df["banner_id"] = evaluation_df["banner_id"].astype(int)
         evaluation_df["label"] = evaluation_df["label"].astype("float32")
@@ -172,12 +181,11 @@ def prepare_evaluation_inputs(X_test: pd.DataFrame) -> pd.DataFrame:
             evaluation_df["event_date"] = pd.to_datetime(evaluation_df["event_date"])
         return evaluation_df.loc[:, ["event_date", "user_id", "banner_id", "label"]]
 
-    if "clicks" not in X_test.columns:
+    if "clicks" not in evaluation_df.columns:
         raise ValueError(
             "Evaluation features must include either a 'label' column or a 'clicks' column."
         )
 
-    evaluation_df = X_test.copy()
     if "event_date" not in evaluation_df.columns:
         evaluation_df["event_date"] = pd.Timestamp("1970-01-01")
     return normalize_interactions(evaluation_df)

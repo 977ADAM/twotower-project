@@ -1,11 +1,15 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from pathlib import Path
+
+_EXAMPLES_DIR = Path(__file__).parent.parent
+
 
 @dataclass
 class Config:
-    users_path: str = "data/raw/users.csv"
-    items_path: str = "data/raw/banners.csv"
-    interactions_path: str = "data/raw/interactions.csv"
-    model_save_path: str = "artifacts/twotower_model.pth"
+    users_path: str = field(default_factory=lambda: str(_EXAMPLES_DIR / "data/raw/users.csv"))
+    items_path: str = field(default_factory=lambda: str(_EXAMPLES_DIR / "data/raw/banners.csv"))
+    interactions_path: str = field(default_factory=lambda: str(_EXAMPLES_DIR / "data/raw/interactions.csv"))
+    model_save_path: str = field(default_factory=lambda: str(_EXAMPLES_DIR / "artifacts/twotower_model.pth"))
     validation_ratio: float = 0.2
     test_ratio: float = 0.1
     max_samples: int | None = 250_000

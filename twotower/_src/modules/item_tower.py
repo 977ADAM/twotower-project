@@ -4,6 +4,7 @@ import torch.nn.functional as F
 
 from twotower._src.config import TwoTowerConfig
 from twotower._src.features import FeatureMetadata, FeatureTables
+from twotower._src.modules.mlp import build_mlp
 
 
 class ItemTower(nn.Module):
@@ -41,7 +42,12 @@ class ItemTower(nn.Module):
         total_input_dim += len(self.feature_metadata.scalar_feature_names) * config.side_feature_embedding_dim
         total_input_dim += len(self.feature_metadata.multi_feature_names) * config.side_feature_embedding_dim
 
-        self.fc = nn.Linear(total_input_dim, config.hidden_dim)
+        self.mlp = build_mlp(
+            input_dim=total_input_dim,
+            hidden_dims=config.tower_dims,
+            output_dim=config.hidden_dim,
+            dropout=config.dropout,
+        )
         self.norm = nn.LayerNorm(config.hidden_dim)
 
     def forward(self, item_input: torch.Tensor) -> torch.Tensor:
@@ -57,7 +63,7 @@ class ItemTower(nn.Module):
             feature_parts.append(pooled_embedding)
 
         x = torch.cat(feature_parts, dim=-1)
-        x = self.fc(x)
+        x = self.mlp(x)
         x = F.relu(x)
         return self.norm(x)
 

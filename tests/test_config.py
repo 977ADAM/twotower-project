@@ -10,6 +10,8 @@ def test_default_config_is_valid():
     assert config.epochs == 25
     assert config.batch_size == 2048
     assert config.device == "cpu"
+    assert config.tower_dims == (256, 128)
+    assert config.dropout == 0.0
 
 
 def test_config_is_immutable():
@@ -33,6 +35,8 @@ def test_config_is_immutable():
     ("max_samples", -100),
     ("max_eval_users", 0),
     ("top_k", 0),
+    ("dropout", -0.1),
+    ("dropout", 1.0),
 ])
 def test_config_rejects_invalid_positive_fields(field, value):
     with pytest.raises(ValueError, match=f"`{field}`"):
@@ -62,6 +66,26 @@ def test_config_allows_none_device():
 def test_config_allows_zero_learning_rate():
     config = TwoTowerConfig(learning_rate=0.0)
     assert config.learning_rate == 0.0
+
+
+def test_config_allows_tower_dims():
+    config = TwoTowerConfig(tower_dims=(256, 128))
+    assert config.tower_dims == (256, 128)
+
+
+def test_config_rejects_nonpositive_tower_dims():
+    with pytest.raises(ValueError, match="`tower_dims`"):
+        TwoTowerConfig(tower_dims=(256, 0))
+
+
+def test_config_allows_zero_dropout():
+    config = TwoTowerConfig(dropout=0.0)
+    assert config.dropout == 0.0
+
+
+def test_config_allows_valid_dropout():
+    config = TwoTowerConfig(dropout=0.5)
+    assert config.dropout == 0.5
 
 
 def test_config_allows_none_max_samples():

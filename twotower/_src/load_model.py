@@ -17,6 +17,8 @@ class LoadedCheckpointState:
     """Normalized checkpoint state ready to be applied to a model instance."""
 
     config: TwoTowerConfig
+    user_col: str
+    item_col: str
     device: torch.device
     user_id_to_idx: dict[int, int]
     item_id_to_idx: dict[int, int]
@@ -97,6 +99,8 @@ class TwoTowerModelLoader:
         config = TwoTowerConfig(**config_dict)
         return LoadedCheckpointState(
             config=config,
+            user_col=str(checkpoint.get("user_col", "user_id")),
+            item_col=str(checkpoint.get("item_col", "banner_id")),
             device=model.resolve_device(config.device),
             user_id_to_idx={
                 int(user_id): int(index)

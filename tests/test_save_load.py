@@ -15,6 +15,8 @@ from twotower._src.save_model import TwoTowerModelSaver
 class StubSaveableModel:
     def __init__(self):
         self.config = TwoTowerConfig(top_k=7, device="cpu")
+        self.user_col = "user_id"
+        self.item_col = "banner_id"
         self.user_id_to_idx = {1: 0}
         self.item_id_to_idx = {10: 0, 30: 1}
         self.idx_to_user_id = [1]
@@ -93,6 +95,8 @@ def test_save_model_persists_checkpoint_payload():
     assert model.ensure_fitted_calls == 1
     assert saved_path == target_path
     assert "config" in checkpoint
+    assert checkpoint["user_col"] == "user_id"
+    assert checkpoint["item_col"] == "banner_id"
     assert torch.equal(checkpoint["state_dict"]["weight"], torch.tensor([1.0, 2.0]))
     assert checkpoint["seen_items_by_user"] == {1: [10, 30]}
     assert checkpoint["train_positive_item_ids_by_popularity"] == [30, 10]
@@ -103,6 +107,8 @@ def test_load_model_restores_checkpoint_state_through_protocol():
     model = StubLoadableModel()
     checkpoint = {
         "config": TwoTowerConfig(top_k=5, device="cpu").__dict__,
+        "user_col": "viewer_id",
+        "item_col": "movie_id",
         "state_dict": {"weight": torch.tensor([3.0])},
         "user_id_to_idx": {1: 0},
         "item_id_to_idx": {10: 0, 30: 1},
@@ -123,6 +129,8 @@ def test_load_model_restores_checkpoint_state_through_protocol():
     assert len(model.validate_calls) == 1
     assert model.resolve_device_calls == ["cpu"]
     assert model.applied_state is not None
+    assert model.applied_state.user_col == "viewer_id"
+    assert model.applied_state.item_col == "movie_id"
     assert model.applied_state.idx_to_user_id == [1]
     assert model.applied_state.seen_items_by_user == {1: {10, 30}}
     assert model.build_tower_calls == [(1, 2)]
