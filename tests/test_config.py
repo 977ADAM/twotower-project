@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from twotower._src.backend.config import TwoTowerConfig
+from twotower._src.config import TwoTowerConfig
 
 
 def test_default_config_is_valid():

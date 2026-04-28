@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 import torch
 
-from twotower._src.backend.config import TwoTowerConfig
+from twotower._src.config import TwoTowerConfig
 from twotower._src.features import FeatureMetadata
 from twotower._src.load_model import LoadedCheckpointState, TwoTowerModelLoader
 from twotower._src.save_model import TwoTowerModelSaver

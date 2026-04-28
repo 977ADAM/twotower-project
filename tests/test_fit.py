@@ -7,7 +7,7 @@ import pytest
 import torch
 import torch.nn as nn
 
-from twotower._src.backend.config import TwoTowerConfig
+from twotower._src.config import TwoTowerConfig
 from twotower._src.fit import (
     EarlyStopping,
     FitInputs,

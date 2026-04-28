@@ -5,7 +5,7 @@ from typing import Protocol, Sequence
 import torch
 import torch.nn.functional as F
 
-from twotower._src.backend.config import TwoTowerConfig
+from twotower._src.config import TwoTowerConfig
 
 
 class PredictableTwoTower(Protocol):

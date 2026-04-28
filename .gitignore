@@ -14,3 +14,6 @@ wheels/
 
 # data files
 *.csv
+
+# model artifacts
+*.pth
