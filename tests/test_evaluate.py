@@ -26,7 +26,9 @@ class StubEvaluableModel:
         return self.evaluate_inputs
 
     def make_loader(self, *, positive_df, interactions_df, shuffle) -> object:
-        self.make_loader_calls.append({"positive_df": positive_df, "interactions_df": interactions_df, "shuffle": shuffle})
+        self.make_loader_calls.append(
+            {"positive_df": positive_df, "interactions_df": interactions_df, "shuffle": shuffle}
+        )
         return {"loader": "ok"}
 
     def evaluate_loader(self, loader: object, prefix: str = "valid") -> dict[str, float]:

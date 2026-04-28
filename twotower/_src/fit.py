@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 import random
-from typing import Protocol
+from dataclasses import dataclass, field
+from typing import Any, Iterator, Protocol
 
 import pandas as pd
 import torch
@@ -21,7 +21,8 @@ def compute_bpr_loss(
     criterion: nn.Module,
 ) -> torch.Tensor:
     """Compute a pairwise Bayesian Personalized Ranking loss."""
-    return -criterion(positive_scores - negative_scores).mean()
+    result: torch.Tensor = -criterion(positive_scores - negative_scores).mean()
+    return result
 
 
 
@@ -204,7 +205,7 @@ def build_pairwise_loader(
     observed_negative_sampling_ratio: float,
     seed: int,
     drop_last: bool = False,
-) -> DataLoader:
+) -> DataLoader[Any]:
     dataset = PairwiseInteractionsDataset(
         positive_df=positive_df,
         interactions_df=interactions_df,
@@ -230,19 +231,19 @@ class TrainableTwoTower(Protocol):
     def to(self, device: torch.device) -> nn.Module:
         ...
 
-    def parameters(self):
+    def parameters(self) -> Iterator[nn.Parameter]:
         ...
 
     def state_dict(self) -> dict[str, torch.Tensor]:
         ...
 
-    def load_state_dict(self, state_dict: dict[str, torch.Tensor]):
+    def load_state_dict(self, state_dict: dict[str, torch.Tensor]) -> None:
         ...
 
-    def train(self, mode: bool = True):
+    def train(self, mode: bool = True) -> object:
         ...
 
-    def eval(self):
+    def eval(self) -> object:
         ...
 
     def encode_users(self, user_input: torch.Tensor) -> torch.Tensor:
@@ -370,7 +371,7 @@ class TwoTowerTrainer:
         model: TrainableTwoTower,
         inputs: FitInputs,
         negative_sampling: NegativeSampling,
-    ) -> DataLoader:
+    ) -> DataLoader[Any]:
         """Create the training dataloader."""
         return build_pairwise_loader(
             positive_df=inputs.train_positive_df,
@@ -390,7 +391,7 @@ class TwoTowerTrainer:
         model: TrainableTwoTower,
         inputs: FitInputs,
         negative_sampling: NegativeSampling,
-    ) -> DataLoader:
+    ) -> DataLoader[Any]:
         """Create the validation dataloader."""
         return build_pairwise_loader(
             positive_df=inputs.valid_positive_df,
@@ -407,7 +408,7 @@ class TwoTowerTrainer:
     def train_epoch(
         self,
         model: TrainableTwoTower,
-        train_loader: DataLoader,
+        train_loader: DataLoader[Any],
         optimizer: torch.optim.Optimizer,
         criterion: nn.Module,
         negative_sampling: NegativeSampling,
@@ -436,9 +437,10 @@ class TwoTowerTrainer:
             if use_in_batch:
                 logits = model.retrieval_logits(user_batch, pos_item_batch)
                 labels = torch.arange(user_batch.size(0), device=self.device)
-                loss = loss + negative_sampling.in_batch_loss_weight * torch.nn.functional.cross_entropy(logits, labels)
+                in_batch: torch.Tensor = torch.nn.functional.cross_entropy(logits, labels)
+                loss = loss + negative_sampling.in_batch_loss_weight * in_batch
 
-            loss.backward()
+            loss.backward()  # type: ignore[no-untyped-call]
             optimizer.step()
 
             batch_size = user_batch.size(0)
@@ -452,7 +454,7 @@ class TwoTowerTrainer:
     def validate(
         self,
         model: TrainableTwoTower,
-        valid_loader: DataLoader,
+        valid_loader: DataLoader[Any],
         criterion: nn.Module,
     ) -> dict[str, float]:
         """Run validation and return validation metrics."""

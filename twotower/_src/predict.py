@@ -18,7 +18,7 @@ class PredictableTwoTower(Protocol):
     idx_to_item_id: list[int]
     item_col: str
 
-    def eval(self):
+    def eval(self) -> object:
         ...
 
     def get_candidate_item_embeddings(

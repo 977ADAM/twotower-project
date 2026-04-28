@@ -6,7 +6,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from twotower import EarlyStopping, NegativeSampling, TwoTower
+from twotower import EarlyStopping, TwoTower
 
 
 @pytest.fixture

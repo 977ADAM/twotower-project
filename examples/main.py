@@ -1,9 +1,9 @@
 import pandas as pd
 from rich.console import Console
 
-from examples.src.data import bucketize_age, load_training_frames
 from examples.src.config import Config
-from twotower import TwoTower, FeatureConfig, MultiFeatureSpec, EarlyStopping, NegativeSampling
+from examples.src.data import bucketize_age, load_training_frames
+from twotower import EarlyStopping, FeatureConfig, MultiFeatureSpec, NegativeSampling, TwoTower
 
 console = Console()
 

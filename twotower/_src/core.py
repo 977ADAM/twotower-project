@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from os import PathLike
 from pathlib import Path
-from typing import Sequence, TypeAlias
+from typing import Any, Sequence, TypeAlias
 
 import pandas as pd
 import torch
@@ -19,10 +19,16 @@ from twotower._src.features import (
     FeatureTables,
     build_feature_tables,
 )
-from twotower._src.modules import ItemTower, UserTower
-from twotower._src.fit import EarlyStopping, FitInputs, NegativeSampling, TwoTowerTrainer, build_pairwise_loader, compute_bpr_loss
+from twotower._src.fit import (
+    EarlyStopping,
+    FitInputs,
+    NegativeSampling,
+    TwoTowerTrainer,
+    build_pairwise_loader,
+    compute_bpr_loss,
+)
 from twotower._src.load_model import LoadedCheckpointState, TwoTowerModelLoader
-from twotower._src.modules import TwoTowerBase
+from twotower._src.modules import ItemTower, TwoTowerBase, UserTower
 from twotower._src.predict import TwoTowerPredictor
 from twotower._src.preprocessing import (
     build_evaluation_reference_data,
@@ -369,7 +375,7 @@ class TwoTower(TwoTowerBase):
             positive_test_df=positive_test_df,
             input_row_count=len(test_input_df),
             unknown_user_row_count=int((~test_input_df["user_id"].isin(self.user_id_to_idx)).sum()),
-            unknown_item_row_count=int((~test_input_df["banner_id"].isin(self.item_id_to_idx)).sum()),  # internal name after boundary rename
+            unknown_item_row_count=int((~test_input_df["banner_id"].isin(self.item_id_to_idx)).sum()),
         )
 
     def make_loader(
@@ -378,7 +384,7 @@ class TwoTower(TwoTowerBase):
         positive_df: pd.DataFrame,
         interactions_df: pd.DataFrame,
         shuffle: bool,
-    ) -> DataLoader:
+    ) -> DataLoader[Any]:
         return build_pairwise_loader(
             positive_df=positive_df,
             interactions_df=interactions_df,
@@ -391,7 +397,7 @@ class TwoTower(TwoTowerBase):
             seed=self.config.seed + 2,
         )
 
-    def evaluate_loader(self, loader: DataLoader, prefix: str = "valid") -> dict[str, float]:
+    def evaluate_loader(self, loader: DataLoader[Any], prefix: str = "valid") -> dict[str, float]:
         self.eval()
         criterion = nn.LogSigmoid()
         loss_sum = 0.0
@@ -434,12 +440,11 @@ class TwoTower(TwoTowerBase):
         positive_df = evaluation_df[evaluation_df["label"] == 1.0]
         if positive_df.empty:
             return []
-        return (
+        return list(
             positive_df["user_id"]
             .drop_duplicates()
             .head(self.config.max_eval_users)
             .astype(int)
-            .tolist()
         )
 
     def recall_at_k(self, evaluation_df: pd.DataFrame, top_k: int, exclude_seen: bool = True) -> float:
@@ -553,8 +558,9 @@ class TwoTower(TwoTowerBase):
             dtype=torch.long,
             device=self.device,
         )
+        assert self.user_tower is not None
         with torch.no_grad():
-            user_embedding = self.user_tower(user_index)
+            user_embedding: torch.Tensor = self.user_tower(user_index)
         return user_embedding.squeeze(0)
 
     def get_user_feature_metadata_dict(self) -> dict[str, object]:
@@ -585,8 +591,12 @@ class TwoTower(TwoTowerBase):
         X_valid: pd.DataFrame,
         y_valid: TargetLike,
     ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-        train_df = build_labeled_interactions(X_train, y_train, split_name="train", user_col=self.user_col, item_col=self.item_col)
-        valid_df = build_labeled_interactions(X_valid, y_valid, split_name="valid", user_col=self.user_col, item_col=self.item_col)
+        train_df = build_labeled_interactions(
+            X_train, y_train, split_name="train", user_col=self.user_col, item_col=self.item_col
+        )
+        valid_df = build_labeled_interactions(
+            X_valid, y_valid, split_name="valid", user_col=self.user_col, item_col=self.item_col
+        )
 
         mappings = build_id_mappings(train_df)
         self.user_id_to_idx = mappings.user_id_to_idx
@@ -648,7 +658,8 @@ class TwoTower(TwoTowerBase):
 
         if user_feature_config is None or item_feature_config is None:
             raise ValueError(
-                "`user_feature_config` and `item_feature_config` must be provided together with `users_df` and `items_df`."
+                "`user_feature_config` and `item_feature_config` must be provided"
+                " together with `users_df` and `items_df`."
             )
 
         self._user_feature_tables = build_feature_tables(
@@ -679,6 +690,7 @@ class TwoTower(TwoTowerBase):
                 dtype=torch.long,
                 device=self.device,
             )
+            assert self.item_tower is not None
             with torch.no_grad():
                 item_embeddings = self.item_tower(item_indices)
                 item_embeddings = F.normalize(item_embeddings, dim=-1)

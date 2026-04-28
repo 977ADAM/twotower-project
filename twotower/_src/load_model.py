@@ -4,7 +4,7 @@ import dataclasses
 from dataclasses import dataclass
 from os import PathLike
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol
 
 import torch
 
@@ -46,16 +46,16 @@ class LoadableTwoTower(Protocol):
     def build_towers(self, num_users: int, num_items: int) -> None:
         ...
 
-    def load_state_dict(self, state_dict: dict[str, torch.Tensor]):
+    def load_state_dict(self, state_dict: dict[str, torch.Tensor]) -> None:
         ...
 
-    def to(self, device: torch.device):
+    def to(self, device: torch.device) -> object:
         ...
 
     def invalidate_item_embedding_cache(self) -> None:
         ...
 
-    def eval(self):
+    def eval(self) -> object:
         ...
 
 
@@ -71,7 +71,7 @@ class TwoTowerModelLoader:
         if not checkpoint_path.exists():
             raise FileNotFoundError(f"Model checkpoint was not found: {checkpoint_path}")
 
-        checkpoint = torch.load(checkpoint_path, map_location="cpu")
+        checkpoint: dict[str, Any] = torch.load(checkpoint_path, map_location="cpu")
         model.validate_checkpoint(checkpoint, checkpoint_path)
 
         loaded_state = self.build_loaded_checkpoint_state(model, checkpoint)
@@ -92,7 +92,7 @@ class TwoTowerModelLoader:
     @staticmethod
     def build_loaded_checkpoint_state(
         model: LoadableTwoTower,
-        checkpoint: dict[str, object],
+        checkpoint: dict[str, Any],
     ) -> LoadedCheckpointState:
         known_fields = {f.name for f in dataclasses.fields(TwoTowerConfig)}
         config_dict = {k: v for k, v in dict(checkpoint["config"]).items() if k in known_fields}

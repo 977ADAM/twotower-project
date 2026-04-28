@@ -2,10 +2,8 @@ from __future__ import annotations
 
 import pandas as pd
 import pytest
-import torch
 
 from twotower._src.features import (
-    UNKNOWN_TOKEN,
     FeatureConfig,
     FeatureMetadata,
     MultiFeatureSpec,

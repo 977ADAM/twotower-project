@@ -3,8 +3,11 @@ from __future__ import annotations
 import os
 import types
 from functools import wraps
+from typing import Any, Callable, TypeVar
 
 _SRC_ROOT = os.path.normpath(os.path.join(os.path.dirname(__file__), ".."))
+
+_F = TypeVar("_F", bound=Callable[..., Any])
 
 
 def _is_internal_frame(frame: types.FrameType) -> bool:
@@ -23,9 +26,9 @@ def _process_traceback_frames(tb: types.TracebackType | None) -> types.Traceback
     return result
 
 
-def filter_traceback(fn):
+def filter_traceback(fn: _F) -> _F:
     @wraps(fn)
-    def error_handler(*args, **kwargs):
+    def error_handler(*args: Any, **kwargs: Any) -> Any:
         filtered_tb = None
         try:
             return fn(*args, **kwargs)
@@ -34,4 +37,4 @@ def filter_traceback(fn):
             raise e.with_traceback(filtered_tb) from None
         finally:
             del filtered_tb
-    return error_handler
+    return error_handler  # type: ignore[return-value]

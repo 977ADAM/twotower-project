@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Any, Protocol
 
 import pandas as pd
 from torch.utils.data import DataLoader
@@ -38,10 +38,10 @@ class EvaluableTwoTower(Protocol):
         positive_df: pd.DataFrame,
         interactions_df: pd.DataFrame,
         shuffle: bool,
-    ) -> DataLoader:
+    ) -> DataLoader[Any]:
         ...
 
-    def evaluate_loader(self, loader: DataLoader, prefix: str = "valid") -> dict[str, float]:
+    def evaluate_loader(self, loader: DataLoader[Any], prefix: str = "valid") -> dict[str, float]:
         ...
 
     def resolve_eval_top_ks(self, top_k: int | None) -> list[int]:

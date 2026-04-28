@@ -1,3 +1,5 @@
+from typing import cast
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -65,7 +67,7 @@ class UserTower(nn.Module):
         x = torch.cat(feature_parts, dim=-1)
         x = self.mlp(x)
         x = F.relu(x)
-        return self.norm(x)
+        return cast(torch.Tensor, self.norm(x))
 
     def _register_feature_buffers(
         self,

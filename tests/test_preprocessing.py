@@ -12,7 +12,6 @@ from twotower._src.preprocessing import (
     prepare_retrieval_pairs,
 )
 
-
 # ── build_labeled_interactions ────────────────────────────────────────────────
 
 def test_build_labeled_interactions_combines_x_and_y():
@@ -112,7 +111,9 @@ def test_prepare_retrieval_pairs_raises_when_no_positives():
     config = TwoTowerConfig()
     df = pd.DataFrame({"user_id": [1], "banner_id": [10], "label": [0.0]})
     with pytest.raises(ValueError, match="no positive interactions"):
-        prepare_retrieval_pairs(df, user_id_to_idx={1: 0}, item_id_to_idx={10: 0}, config=config, apply_sampling=False, split_name="train")
+        prepare_retrieval_pairs(
+            df, user_id_to_idx={1: 0}, item_id_to_idx={10: 0}, config=config, apply_sampling=False, split_name="train"
+        )
 
 
 # ── build_evaluation_reference_data ──────────────────────────────────────────
