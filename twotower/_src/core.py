@@ -139,14 +139,15 @@ class TwoTower(TwoTowerBase):
         self,
         train_df: pd.DataFrame,
         *,
-        validation_data: pd.DataFrame,
+        validation_data: pd.DataFrame | None = None,
         user_col: str = "user_id",
         item_col: str = "banner_id",
         users_df: pd.DataFrame | None = None,
         items_df: pd.DataFrame | None = None,
         user_feature_config: FeatureConfig | None = None,
         item_feature_config: FeatureConfig | None = None,
-        negative_sampling: NegativeSampling = NegativeSampling(),
+        observed_ratio: float = 0.8,
+        in_batch_loss_weight: float = 0.0,
         learning_rate: float = 1e-3,
         weight_decay: float = 0.0,
         batch_size: int = 2048,
@@ -166,6 +167,7 @@ class TwoTower(TwoTowerBase):
         self.user_col = user_col
         self.item_col = item_col
         self.device = self.resolve_device(device)
+        negative_sampling = NegativeSampling(observed_ratio=observed_ratio, in_batch_loss_weight=in_batch_loss_weight)
         self.config = _Config(
             user_embedding_dim=self.user_embedding_dim,
             item_embedding_dim=self.item_embedding_dim,
@@ -185,15 +187,22 @@ class TwoTower(TwoTowerBase):
             seed=seed,
             device=device,
         )
+        if patience is not None and validation_data is None:
+            raise ValueError(
+                "Cannot use early stopping without validation_data. "
+                "Pass validation_data or set patience=None."
+            )
         early_stopping = (
             EarlyStopping(patience=patience, metric=early_stopping_metric, min_delta=min_delta)
             if patience is not None
             else None
         )
 
-        prepared_train_df, prepared_valid_df, reference_train_df, reference_valid_df = self._prepare_fit_inputs(
-            train_df=train_df,
-            valid_df=validation_data,
+        prepared_train_df, reference_train_df = self._prepare_fit_inputs(train_df=train_df)
+        prepared_valid_df, reference_valid_df = (
+            self._prepare_valid_inputs(valid_df=validation_data)
+            if validation_data is not None
+            else (None, None)
         )
         self.train_df = reference_train_df
         self.valid_df = reference_valid_df
@@ -210,11 +219,11 @@ class TwoTower(TwoTowerBase):
 
         fit_inputs = FitInputs(
             train_positive_df=prepared_train_df,
-            valid_positive_df=prepared_valid_df,
             train_interactions_df=reference_train_df,
-            valid_interactions_df=reference_valid_df,
             num_users=len(self.idx_to_user_id),
             num_items=len(self.idx_to_item_id),
+            valid_positive_df=prepared_valid_df,
+            valid_interactions_df=reference_valid_df,
         )
         trainer = TwoTowerTrainer(config=self.config, device=self.device)
 
@@ -575,10 +584,8 @@ class TwoTower(TwoTowerBase):
         self,
         *,
         train_df: pd.DataFrame,
-        valid_df: pd.DataFrame,
-    ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    ) -> tuple[pd.DataFrame, pd.DataFrame]:
         train_df = normalize_fit_interactions(train_df, split_name="train", user_col=self.user_col, item_col=self.item_col)
-        valid_df = normalize_fit_interactions(valid_df, split_name="valid", user_col=self.user_col, item_col=self.item_col)
 
         mappings = build_id_mappings(train_df)
         self.user_id_to_idx = mappings.user_id_to_idx
@@ -586,6 +593,7 @@ class TwoTower(TwoTowerBase):
         self.idx_to_user_id = mappings.idx_to_user_id
         self.idx_to_item_id = mappings.idx_to_item_id
 
+        assert self.config is not None
         prepared_train_df = prepare_retrieval_pairs(
             train_df,
             user_id_to_idx=self.user_id_to_idx,
@@ -593,6 +601,21 @@ class TwoTower(TwoTowerBase):
             config=self.config,
             split_name="train",
         )
+        reference_train_df = filter_and_sample_interactions(
+            train_df,
+            user_id_to_idx=self.user_id_to_idx,
+            item_id_to_idx=self.item_id_to_idx,
+            config=self.config,
+        )
+        return prepared_train_df, reference_train_df
+
+    def _prepare_valid_inputs(
+        self,
+        *,
+        valid_df: pd.DataFrame,
+    ) -> tuple[pd.DataFrame, pd.DataFrame]:
+        assert self.config is not None
+        valid_df = normalize_fit_interactions(valid_df, split_name="valid", user_col=self.user_col, item_col=self.item_col)
         prepared_valid_df = prepare_retrieval_pairs(
             valid_df,
             user_id_to_idx=self.user_id_to_idx,
@@ -600,19 +623,13 @@ class TwoTower(TwoTowerBase):
             config=self.config,
             split_name="valid",
         )
-        reference_train_df = filter_and_sample_interactions(
-            train_df,
-            user_id_to_idx=self.user_id_to_idx,
-            item_id_to_idx=self.item_id_to_idx,
-            config=self.config,
-        )
         reference_valid_df = filter_and_sample_interactions(
             valid_df,
             user_id_to_idx=self.user_id_to_idx,
             item_id_to_idx=self.item_id_to_idx,
             config=self.config,
         )
-        return prepared_train_df, prepared_valid_df, reference_train_df, reference_valid_df
+        return prepared_valid_df, reference_valid_df
 
     def _prepare_side_feature_tables(
         self,

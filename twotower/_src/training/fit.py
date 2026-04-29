@@ -70,11 +70,11 @@ class FitInputs:
     """Prepared train/validation data for the training loop."""
 
     train_positive_df: pd.DataFrame
-    valid_positive_df: pd.DataFrame
     train_interactions_df: pd.DataFrame
-    valid_interactions_df: pd.DataFrame
     num_users: int
     num_items: int
+    valid_positive_df: pd.DataFrame | None = None
+    valid_interactions_df: pd.DataFrame | None = None
 
 
 @dataclass(slots=True)
@@ -288,8 +288,10 @@ class TwoTowerTrainer:
         model.build_towers(inputs.num_users, inputs.num_items)
         model.to(self.device)
 
+        has_validation = inputs.valid_positive_df is not None and inputs.valid_interactions_df is not None
+
         train_loader = self.build_train_loader(model, inputs, negative_sampling)
-        valid_loader = self.build_valid_loader(model, inputs, negative_sampling)
+        valid_loader = self.build_valid_loader(model, inputs, negative_sampling) if has_validation else None
         optimizer = self.build_optimizer(model)
         criterion = self.build_loss()
 
@@ -298,9 +300,10 @@ class TwoTowerTrainer:
         best_state_dict: dict[str, torch.Tensor] | None = None
         epochs_without_improvement = 0
 
-        # recall must be computed if requested by logging config OR by early stopping metric
-        need_recall = self.config.eval_during_training or (
-            early_stopping is not None and early_stopping.metric.startswith("recall_at_")
+        need_recall = has_validation and (
+            self.config.eval_during_training or (
+                early_stopping is not None and early_stopping.metric.startswith("recall_at_")
+            )
         )
 
         for epoch in range(1, self.config.epochs + 1):
@@ -311,11 +314,7 @@ class TwoTowerTrainer:
                 criterion=criterion,
                 negative_sampling=negative_sampling,
             )
-            valid_metrics = self.validate(
-                model=model,
-                valid_loader=valid_loader,
-                criterion=criterion,
-            )
+            valid_metrics = self.validate(model=model, valid_loader=valid_loader, criterion=criterion)
             recall_metrics = self.compute_recall_metrics(model, inputs) if need_recall else {}
             epoch_metrics = self.merge_epoch_metrics(
                 epoch=epoch,
@@ -397,6 +396,7 @@ class TwoTowerTrainer:
         negative_sampling: NegativeSampling,
     ) -> DataLoader[Any]:
         """Create the validation dataloader."""
+        assert inputs.valid_positive_df is not None and inputs.valid_interactions_df is not None
         return build_pairwise_loader(
             positive_df=inputs.valid_positive_df,
             interactions_df=inputs.valid_interactions_df,
@@ -458,10 +458,13 @@ class TwoTowerTrainer:
     def validate(
         self,
         model: _Trainable,
-        valid_loader: DataLoader[Any],
+        valid_loader: DataLoader[Any] | None,
         criterion: nn.Module,
     ) -> dict[str, float]:
-        """Run validation and return validation metrics."""
+        """Run validation and return validation metrics. Returns {} if no validation loader."""
+        if valid_loader is None:
+            return {}
+
         model.eval()
         loss_sum = 0.0
         total_examples = 0
@@ -528,9 +531,10 @@ class TwoTowerTrainer:
             if key.startswith("recall_at_")
         )
         recall_str = f" {recall_parts}" if recall_parts else ""
+        valid_str = f" valid_loss={metrics['valid_loss']:.4f}" if "valid_loss" in metrics else ""
         console.print(
             f"Epoch {epoch}/{self.config.epochs} "
-            f"train_loss={metrics['train_loss']:.4f} "
-            f"valid_loss={metrics['valid_loss']:.4f}"
+            f"train_loss={metrics['train_loss']:.4f}"
+            f"{valid_str}"
             f"{recall_str}"
         )
