@@ -4,13 +4,13 @@ from typing import Protocol, Sequence
 
 import torch
 
-from twotower._src.config import TwoTowerConfig
+from twotower._src.config import _Config
 
 
-class PredictableTwoTower(Protocol):
+class _Predictable(Protocol):
     """Minimal model contract required by the prediction module."""
 
-    config: TwoTowerConfig
+    config: _Config
     user_id_to_idx: dict[int, int]
     item_id_to_idx: dict[int, int]
     idx_to_user_id: list[int]
@@ -38,7 +38,7 @@ class TwoTowerPredictor:
 
     def predict(
         self,
-        model: PredictableTwoTower,
+        model: _Predictable,
         *,
         user_ids: Sequence[int] | None = None,
         item_ids: Sequence[int] | None = None,
@@ -79,7 +79,7 @@ class TwoTowerPredictor:
 
     def prepare_prediction_inputs(
         self,
-        model: PredictableTwoTower,
+        model: _Predictable,
         *,
         user_ids: Sequence[int] | None,
         item_ids: Sequence[int] | None,
@@ -126,7 +126,7 @@ class TwoTowerPredictor:
 
     def score_top_k_for_user(
         self,
-        model: PredictableTwoTower,
+        model: _Predictable,
         *,
         user_id: int,
         item_embeddings: torch.Tensor,
@@ -164,7 +164,7 @@ class TwoTowerPredictor:
 
     def predict_top_k_item_ids_for_user(
         self,
-        model: PredictableTwoTower,
+        model: _Predictable,
         *,
         user_id: int,
         item_embeddings: torch.Tensor,

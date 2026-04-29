@@ -3,13 +3,13 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from twotower._src.config import TwoTowerConfig
+from twotower._src.config import _Config
 from twotower._src.retrieval.evaluate import EvaluateInputs, TwoTowerEvaluator
 
 
 class StubEvaluableModel:
     def __init__(self, evaluate_inputs: EvaluateInputs):
-        self.config = TwoTowerConfig(top_k=10, eval_top_ks=(5, 10))
+        self.config = _Config(top_k=10, eval_top_ks=(5, 10))
         self.evaluate_inputs = evaluate_inputs
         self.ensure_fitted_calls = 0
         self.make_loader_calls: list[dict[str, object]] = []

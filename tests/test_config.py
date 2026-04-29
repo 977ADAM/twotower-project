@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import pytest
 
-from twotower._src.config import TwoTowerConfig
+from twotower._src.config import _Config
 
 
 def test_default_config_is_valid():
-    config = TwoTowerConfig()
+    config = _Config()
     assert config.epochs == 25
     assert config.batch_size == 2048
     assert config.device == "cpu"
@@ -15,7 +15,7 @@ def test_default_config_is_valid():
 
 
 def test_config_is_immutable():
-    config = TwoTowerConfig()
+    config = _Config()
     with pytest.raises(Exception):
         config.epochs = 10  # type: ignore[misc]
 
@@ -39,51 +39,51 @@ def test_config_is_immutable():
 ])
 def test_config_rejects_invalid_positive_fields(field, value):
     with pytest.raises(ValueError, match=f"`{field}`"):
-        TwoTowerConfig(**{field: value})
+        _Config(**{field: value})
 
 
 def test_config_rejects_empty_eval_top_ks():
     with pytest.raises(ValueError, match="`eval_top_ks`"):
-        TwoTowerConfig(eval_top_ks=())
+        _Config(eval_top_ks=())
 
 
 def test_config_rejects_nonpositive_eval_top_ks():
     with pytest.raises(ValueError, match="`eval_top_ks`"):
-        TwoTowerConfig(eval_top_ks=(10, 0, 50))
+        _Config(eval_top_ks=(10, 0, 50))
 
 
 def test_config_rejects_invalid_device():
     with pytest.raises(ValueError, match="`device`"):
-        TwoTowerConfig(device="gpu")
+        _Config(device="gpu")
 
 
 def test_config_allows_none_device():
-    config = TwoTowerConfig(device=None)
+    config = _Config(device=None)
     assert config.device is None
 
 
 def test_config_allows_zero_learning_rate():
-    config = TwoTowerConfig(learning_rate=0.0)
+    config = _Config(learning_rate=0.0)
     assert config.learning_rate == 0.0
 
 
 def test_config_allows_tower_dims():
-    config = TwoTowerConfig(tower_dims=(256, 128))
+    config = _Config(tower_dims=(256, 128))
     assert config.tower_dims == (256, 128)
 
 
 def test_config_rejects_nonpositive_tower_dims():
     with pytest.raises(ValueError, match="`tower_dims`"):
-        TwoTowerConfig(tower_dims=(256, 0))
+        _Config(tower_dims=(256, 0))
 
 
 def test_config_allows_zero_dropout():
-    config = TwoTowerConfig(dropout=0.0)
+    config = _Config(dropout=0.0)
     assert config.dropout == 0.0
 
 
 def test_config_allows_valid_dropout():
-    config = TwoTowerConfig(dropout=0.5)
+    config = _Config(dropout=0.5)
     assert config.dropout == 0.5
 
 

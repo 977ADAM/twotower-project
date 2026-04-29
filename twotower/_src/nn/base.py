@@ -2,14 +2,14 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from twotower._src.config import TwoTowerConfig
+from twotower._src.config import _Config
 
 from .item_tower import ItemTower
 from .user_tower import UserTower
 
 
 class TwoTowerBase(nn.Module):
-    def __init__(self, config: TwoTowerConfig):
+    def __init__(self, config: _Config):
         super().__init__()
         self.config = config
         self.user_tower: UserTower | None = None

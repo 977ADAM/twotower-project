@@ -7,7 +7,7 @@ import pytest
 import torch
 import torch.nn as nn
 
-from twotower._src.config import TwoTowerConfig
+from twotower._src.config import _Config
 from twotower._src.training.fit import (
     EarlyStopping,
     FitInputs,
@@ -19,7 +19,7 @@ from twotower._src.training.fit import (
 
 
 class StubTrainableModel(nn.Module):
-    def __init__(self, config: TwoTowerConfig):
+    def __init__(self, config: _Config):
         super().__init__()
         self.config = config
         self.user_id_to_idx = {1: 0, 2: 1}
@@ -137,7 +137,7 @@ def test_build_pairwise_loader_returns_expected_training_triples(interactions_da
 
 def test_trainer_fit_returns_history_and_restores_best_state(interactions_data):
     positive_df, interactions_df, _, _ = interactions_data
-    config = TwoTowerConfig(epochs=2, batch_size=2, learning_rate=0.01, seed=13, device="cpu")
+    config = _Config(epochs=2, batch_size=2, learning_rate=0.01, seed=13, device="cpu")
     model = StubTrainableModel(config)
     trainer = TwoTowerTrainer(config=config, device=torch.device("cpu"))
     fit_inputs = FitInputs(
@@ -164,7 +164,7 @@ def test_trainer_fit_returns_history_and_restores_best_state(interactions_data):
 
 def test_trainer_fit_with_in_batch_loss_produces_finite_loss(interactions_data):
     positive_df, interactions_df, _, _ = interactions_data
-    config = TwoTowerConfig(
+    config = _Config(
         epochs=2, batch_size=2, learning_rate=0.01, seed=13, device="cpu",
         eval_during_training=False,
     )
@@ -192,7 +192,7 @@ def test_trainer_fit_with_in_batch_loss_produces_finite_loss(interactions_data):
 
 def test_trainer_early_stopping_halts_before_max_epochs(interactions_data):
     positive_df, interactions_df, _, _ = interactions_data
-    config = TwoTowerConfig(
+    config = _Config(
         epochs=20, batch_size=2, learning_rate=0.0,  # lr=0 → loss never improves
         seed=13, device="cpu", eval_during_training=False,
     )
@@ -215,7 +215,7 @@ def test_trainer_early_stopping_halts_before_max_epochs(interactions_data):
 
 def test_trainer_early_stopping_on_recall_metric(interactions_data):
     positive_df, interactions_df, _, _ = interactions_data
-    config = TwoTowerConfig(
+    config = _Config(
         epochs=10, batch_size=2, learning_rate=0.0,
         seed=13, device="cpu", eval_during_training=False, eval_top_ks=(10,),
     )
@@ -244,7 +244,7 @@ def test_trainer_early_stopping_on_recall_metric(interactions_data):
 
 def test_trainer_no_early_stopping_runs_all_epochs(interactions_data):
     positive_df, interactions_df, _, _ = interactions_data
-    config = TwoTowerConfig(
+    config = _Config(
         epochs=3, batch_size=2, learning_rate=0.0,
         seed=13, device="cpu", eval_during_training=False,
     )
@@ -266,7 +266,7 @@ def test_trainer_no_early_stopping_runs_all_epochs(interactions_data):
 
 def test_trainer_fit_computes_recall_metrics_when_eval_during_training(interactions_data):
     positive_df, interactions_df, _, _ = interactions_data
-    config = TwoTowerConfig(
+    config = _Config(
         epochs=2, batch_size=2, learning_rate=0.01,
         seed=13, device="cpu", eval_during_training=True, eval_top_ks=(10, 50),
     )

@@ -5,7 +5,7 @@ from typing import Sequence, TypeAlias
 
 import pandas as pd
 
-from twotower._src.config import TwoTowerConfig
+from twotower._src.config import _Config
 from twotower._src.data.split import normalize_interactions
 
 TargetLike: TypeAlias = pd.Series | Sequence[float]
@@ -69,7 +69,7 @@ def filter_and_sample_interactions(
     *,
     user_id_to_idx: dict[int, int],
     item_id_to_idx: dict[int, int],
-    config: TwoTowerConfig,
+    config: _Config,
     sort_by_event_date: bool = False,
 ) -> pd.DataFrame:
     """Filter to known user/item IDs and sort by date."""
@@ -104,7 +104,7 @@ def prepare_retrieval_pairs(
     *,
     user_id_to_idx: dict[int, int],
     item_id_to_idx: dict[int, int],
-    config: TwoTowerConfig,
+    config: _Config,
     split_name: str,
 ) -> pd.DataFrame:
     """Filter to positive interactions only."""
@@ -168,7 +168,7 @@ def normalize_and_filter_interactions(
     *,
     user_id_to_idx: dict[int, int],
     item_id_to_idx: dict[int, int],
-    config: TwoTowerConfig,
+    config: _Config,
 ) -> pd.DataFrame:
     """Normalize raw or pre-labeled interactions, then filter to known IDs."""
     if "label" in interactions_df.columns:

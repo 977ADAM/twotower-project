@@ -7,13 +7,13 @@ from typing import Protocol
 
 import torch
 
-from twotower._src.config import TwoTowerConfig
+from twotower._src.config import _Config
 
 
-class SaveableTwoTower(Protocol):
+class _Saveable(Protocol):
     """Minimal model contract required by the checkpoint save module."""
 
-    config: TwoTowerConfig
+    config: _Config
     user_col: str
     item_col: str
     user_id_to_idx: dict[int, int]
@@ -44,7 +44,7 @@ class SaveableTwoTower(Protocol):
 class TwoTowerModelSaver:
     """Persist a two-tower model checkpoint through a minimal protocol interface."""
 
-    def save_model(self, model: SaveableTwoTower, path: str | PathLike[str]) -> Path:
+    def save_model(self, model: _Saveable, path: str | PathLike[str]) -> Path:
         model.ensure_fitted()
         target_path = self.resolve_checkpoint_path(path)
         target_path.parent.mkdir(parents=True, exist_ok=True)

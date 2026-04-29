@@ -3,7 +3,7 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from twotower._src.config import TwoTowerConfig
+from twotower._src.config import _Config
 from twotower._src.data.preprocessing import (
     build_evaluation_reference_data,
     build_id_mappings,
@@ -62,7 +62,7 @@ def interactions_df():
 
 
 def test_filter_removes_unknown_users_and_items(interactions_df):
-    config = TwoTowerConfig()
+    config = _Config()
     result = filter_and_sample_interactions(
         interactions_df,
         user_id_to_idx={1: 0, 2: 1},
@@ -74,7 +74,7 @@ def test_filter_removes_unknown_users_and_items(interactions_df):
 
 
 def test_filter_raises_for_missing_columns():
-    config = TwoTowerConfig()
+    config = _Config()
     df = pd.DataFrame({"user_id": [1], "banner_id": [10]})
     with pytest.raises(ValueError, match="label"):
         filter_and_sample_interactions(df, user_id_to_idx={1: 0}, item_id_to_idx={10: 0}, config=config)
@@ -83,7 +83,7 @@ def test_filter_raises_for_missing_columns():
 # ── prepare_retrieval_pairs ───────────────────────────────────────────────────
 
 def test_prepare_retrieval_pairs_returns_only_positives(interactions_df):
-    config = TwoTowerConfig()
+    config = _Config()
     result = prepare_retrieval_pairs(
         interactions_df,
         user_id_to_idx={1: 0, 2: 1},
@@ -95,7 +95,7 @@ def test_prepare_retrieval_pairs_returns_only_positives(interactions_df):
 
 
 def test_prepare_retrieval_pairs_raises_when_no_positives():
-    config = TwoTowerConfig()
+    config = _Config()
     df = pd.DataFrame({"user_id": [1], "banner_id": [10], "label": [0.0]})
     with pytest.raises(ValueError, match="no positive interactions"):
         prepare_retrieval_pairs(

@@ -10,7 +10,7 @@ import torch.nn as nn
 from rich.console import Console
 from torch.utils.data import DataLoader, Dataset
 
-from twotower._src.config import TwoTowerConfig
+from twotower._src.config import _Config
 
 console = Console()
 
@@ -218,10 +218,10 @@ def build_pairwise_loader(
     return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, drop_last=drop_last)
 
 
-class TrainableTwoTower(Protocol):
+class _Trainable(Protocol):
     """Minimal model contract required by the training module."""
 
-    config: TwoTowerConfig
+    config: _Config
     user_id_to_idx: dict[int, int]
     item_id_to_idx: dict[int, int]
 
@@ -273,13 +273,13 @@ class TrainableTwoTower(Protocol):
 class TwoTowerTrainer:
     """Train a two-tower model from prepared interaction data."""
 
-    def __init__(self, config: TwoTowerConfig, device: torch.device):
+    def __init__(self, config: _Config, device: torch.device):
         self.config = config
         self.device = device
 
     def fit(
         self,
-        model: TrainableTwoTower,
+        model: _Trainable,
         inputs: FitInputs,
         negative_sampling: NegativeSampling = NegativeSampling(),
         early_stopping: EarlyStopping | None = EarlyStopping(),
@@ -358,7 +358,7 @@ class TwoTowerTrainer:
 
         return FitResult(history=state.history)
 
-    def build_optimizer(self, model: TrainableTwoTower) -> torch.optim.Optimizer:
+    def build_optimizer(self, model: _Trainable) -> torch.optim.Optimizer:
         """Create the optimizer used by the training loop."""
         return torch.optim.Adam(
             model.parameters(),
@@ -372,7 +372,7 @@ class TwoTowerTrainer:
 
     def build_train_loader(
         self,
-        model: TrainableTwoTower,
+        model: _Trainable,
         inputs: FitInputs,
         negative_sampling: NegativeSampling,
     ) -> DataLoader[Any]:
@@ -392,7 +392,7 @@ class TwoTowerTrainer:
 
     def build_valid_loader(
         self,
-        model: TrainableTwoTower,
+        model: _Trainable,
         inputs: FitInputs,
         negative_sampling: NegativeSampling,
     ) -> DataLoader[Any]:
@@ -411,7 +411,7 @@ class TwoTowerTrainer:
 
     def train_epoch(
         self,
-        model: TrainableTwoTower,
+        model: _Trainable,
         train_loader: DataLoader[Any],
         optimizer: torch.optim.Optimizer,
         criterion: nn.Module,
@@ -457,7 +457,7 @@ class TwoTowerTrainer:
 
     def validate(
         self,
-        model: TrainableTwoTower,
+        model: _Trainable,
         valid_loader: DataLoader[Any],
         criterion: nn.Module,
     ) -> dict[str, float]:
@@ -490,7 +490,7 @@ class TwoTowerTrainer:
 
     def compute_recall_metrics(
         self,
-        model: TrainableTwoTower,
+        model: _Trainable,
         inputs: FitInputs,
     ) -> dict[str, float]:
         """Compute recall@k on the validation set for all configured top-k values."""

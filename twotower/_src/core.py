@@ -11,7 +11,7 @@ import torch.nn.functional as F
 from rich.console import Console
 from torch.utils.data import DataLoader
 
-from twotower._src.config import TwoTowerConfig
+from twotower._src.config import _Config
 from twotower._src.data.features import (
     FeatureConfig,
     FeatureMetadata,
@@ -123,7 +123,7 @@ class TwoTower(TwoTowerBase):
         seed: int = 42,
         device: str | None = "cpu",
     ):
-        config = TwoTowerConfig(
+        config = _Config(
             user_embedding_dim=user_embedding_dim,
             item_embedding_dim=item_embedding_dim,
             side_feature_embedding_dim=side_feature_embedding_dim,

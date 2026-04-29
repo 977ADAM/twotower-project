@@ -8,7 +8,7 @@ from typing import Any, Protocol
 
 import torch
 
-from twotower._src.config import TwoTowerConfig
+from twotower._src.config import _Config
 from twotower._src.data.features import FeatureMetadata
 
 
@@ -16,7 +16,7 @@ from twotower._src.data.features import FeatureMetadata
 class LoadedCheckpointState:
     """Normalized checkpoint state ready to be applied to a model instance."""
 
-    config: TwoTowerConfig
+    config: _Config
     user_col: str
     item_col: str
     device: torch.device
@@ -31,7 +31,7 @@ class LoadedCheckpointState:
     item_feature_metadata: FeatureMetadata
 
 
-class LoadableTwoTower(Protocol):
+class _Loadable(Protocol):
     """Minimal model contract required by the checkpoint load module."""
 
     def validate_checkpoint(self, checkpoint: object, checkpoint_path: Path) -> None:
@@ -64,7 +64,7 @@ class TwoTowerModelLoader:
 
     def load_model(
         self,
-        model: LoadableTwoTower,
+        model: _Loadable,
         path: str | PathLike[str],
     ) -> None:
         checkpoint_path = self.resolve_checkpoint_path(path)
@@ -91,12 +91,12 @@ class TwoTowerModelLoader:
 
     @staticmethod
     def build_loaded_checkpoint_state(
-        model: LoadableTwoTower,
+        model: _Loadable,
         checkpoint: dict[str, Any],
     ) -> LoadedCheckpointState:
-        known_fields = {f.name for f in dataclasses.fields(TwoTowerConfig)}
+        known_fields = {f.name for f in dataclasses.fields(_Config)}
         config_dict = {k: v for k, v in dict(checkpoint["config"]).items() if k in known_fields}
-        config = TwoTowerConfig(**config_dict)
+        config = _Config(**config_dict)
         return LoadedCheckpointState(
             config=config,
             user_col=str(checkpoint.get("user_col", "user_id")),

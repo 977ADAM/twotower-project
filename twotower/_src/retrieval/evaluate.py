@@ -6,7 +6,7 @@ from typing import Any, Protocol
 import pandas as pd
 from torch.utils.data import DataLoader
 
-from twotower._src.config import TwoTowerConfig
+from twotower._src.config import _Config
 
 
 @dataclass(slots=True)
@@ -21,10 +21,10 @@ class EvaluateInputs:
     unknown_item_row_count: int
 
 
-class EvaluableTwoTower(Protocol):
+class _Evaluable(Protocol):
     """Minimal model contract required by the evaluation module."""
 
-    config: TwoTowerConfig
+    config: _Config
 
     def ensure_fitted(self) -> None:
         ...
@@ -62,7 +62,7 @@ class TwoTowerEvaluator:
 
     def evaluate(
         self,
-        model: EvaluableTwoTower,
+        model: _Evaluable,
         X_test: pd.DataFrame,
         top_k: int | None = None,
     ) -> dict[str, float]:

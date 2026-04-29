@@ -2,7 +2,7 @@ from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
-class TwoTowerConfig:
+class _Config:
     user_embedding_dim: int = 64
     item_embedding_dim: int = 64
     side_feature_embedding_dim: int = 8

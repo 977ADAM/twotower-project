@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 import torch
 
-from twotower._src.config import TwoTowerConfig
+from twotower._src.config import _Config
 from twotower._src.data.features import FeatureMetadata
 from twotower._src.io.load import LoadedCheckpointState, TwoTowerModelLoader
 from twotower._src.io.save import TwoTowerModelSaver
@@ -14,7 +14,7 @@ from twotower._src.io.save import TwoTowerModelSaver
 
 class StubSaveableModel:
     def __init__(self):
-        self.config = TwoTowerConfig(top_k=7, device="cpu")
+        self.config = _Config(top_k=7, device="cpu")
         self.user_col = "user_id"
         self.item_col = "banner_id"
         self.user_id_to_idx = {1: 0}
@@ -106,7 +106,7 @@ def test_load_model_restores_checkpoint_state_through_protocol():
     loader = TwoTowerModelLoader()
     model = StubLoadableModel()
     checkpoint = {
-        "config": TwoTowerConfig(top_k=5, device="cpu").__dict__,
+        "config": _Config(top_k=5, device="cpu").__dict__,
         "user_col": "viewer_id",
         "item_col": "movie_id",
         "state_dict": {"weight": torch.tensor([3.0])},

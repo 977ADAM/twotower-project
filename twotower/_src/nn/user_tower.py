@@ -3,7 +3,7 @@ from typing import cast
 import torch
 import torch.nn as nn
 
-from twotower._src.config import TwoTowerConfig
+from twotower._src.config import _Config
 from twotower._src.data.features import FeatureMetadata, FeatureTables
 
 from .mlp import build_mlp
@@ -13,7 +13,7 @@ class UserTower(nn.Module):
     def __init__(
         self,
         num_embeddings: int,
-        config: TwoTowerConfig,
+        config: _Config,
         feature_tables: FeatureTables | None = None,
         feature_metadata: FeatureMetadata | None = None,
     ):

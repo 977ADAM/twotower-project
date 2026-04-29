@@ -19,4 +19,4 @@ def test_top_level_exports_are_explicit_and_import_star_safe():
     assert namespace["EarlyStopping"] is twotower.EarlyStopping
     assert namespace["NegativeSampling"] is twotower.NegativeSampling
     assert "TwoTowerBase" not in namespace
-    assert "TwoTowerConfig" not in namespace
+    assert "_Config" not in namespace

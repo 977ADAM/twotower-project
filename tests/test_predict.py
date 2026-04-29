@@ -3,13 +3,13 @@ from __future__ import annotations
 import pytest
 import torch
 
-from twotower._src.config import TwoTowerConfig
+from twotower._src.config import _Config
 from twotower._src.retrieval.predict import TwoTowerPredictor
 
 
 class StubPredictableModel:
     def __init__(self, item_col: str = "banner_id"):
-        self.config = TwoTowerConfig(top_k=2)
+        self.config = _Config(top_k=2)
         self.item_col = item_col
         self.user_id_to_idx = {1: 0, 2: 1}
         self.item_id_to_idx = {10: 0, 20: 1, 30: 2}
