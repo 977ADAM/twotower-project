@@ -440,7 +440,7 @@ class TwoTowerTrainer:
                 in_batch: torch.Tensor = torch.nn.functional.cross_entropy(logits, labels)
                 loss = loss + negative_sampling.in_batch_loss_weight * in_batch
 
-            loss.backward()  # type: ignore[no-untyped-call]
+            loss.backward()
             optimizer.step()
 
             batch_size = user_batch.size(0)

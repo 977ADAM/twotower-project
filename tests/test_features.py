@@ -3,7 +3,7 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from twotower._src.features import (
+from twotower._src.data.features import (
     FeatureConfig,
     FeatureMetadata,
     MultiFeatureSpec,

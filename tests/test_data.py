@@ -4,7 +4,7 @@ import pandas as pd
 import pytest
 
 from twotower import split_interactions
-from twotower._src.data import normalize_interactions
+from twotower._src.data.split import normalize_interactions
 
 
 def _make_interactions(dates: list[str], clicks: list[int] | None = None) -> pd.DataFrame:

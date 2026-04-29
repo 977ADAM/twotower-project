@@ -12,25 +12,13 @@ from rich.console import Console
 from torch.utils.data import DataLoader
 
 from twotower._src.config import TwoTowerConfig
-from twotower._src.evaluate import EvaluateInputs, TwoTowerEvaluator
-from twotower._src.features import (
+from twotower._src.data.features import (
     FeatureConfig,
     FeatureMetadata,
     FeatureTables,
     build_feature_tables,
 )
-from twotower._src.fit import (
-    EarlyStopping,
-    FitInputs,
-    NegativeSampling,
-    TwoTowerTrainer,
-    build_pairwise_loader,
-    compute_bpr_loss,
-)
-from twotower._src.load_model import LoadedCheckpointState, TwoTowerModelLoader
-from twotower._src.modules import ItemTower, TwoTowerBase, UserTower
-from twotower._src.predict import TwoTowerPredictor
-from twotower._src.preprocessing import (
+from twotower._src.data.preprocessing import (
     build_evaluation_reference_data,
     build_id_mappings,
     build_labeled_interactions,
@@ -39,7 +27,19 @@ from twotower._src.preprocessing import (
     prepare_evaluation_inputs,
     prepare_retrieval_pairs,
 )
-from twotower._src.save_model import TwoTowerModelSaver
+from twotower._src.io.load import LoadedCheckpointState, TwoTowerModelLoader
+from twotower._src.io.save import TwoTowerModelSaver
+from twotower._src.nn import ItemTower, TwoTowerBase, UserTower
+from twotower._src.retrieval.evaluate import EvaluateInputs, TwoTowerEvaluator
+from twotower._src.retrieval.predict import TwoTowerPredictor
+from twotower._src.training.fit import (
+    EarlyStopping,
+    FitInputs,
+    NegativeSampling,
+    TwoTowerTrainer,
+    build_pairwise_loader,
+    compute_bpr_loss,
+)
 from twotower._src.utils.traceback_utils import filter_traceback
 
 console = Console()

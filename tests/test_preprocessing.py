@@ -4,7 +4,7 @@ import pandas as pd
 import pytest
 
 from twotower._src.config import TwoTowerConfig
-from twotower._src.preprocessing import (
+from twotower._src.data.preprocessing import (
     build_evaluation_reference_data,
     build_id_mappings,
     build_labeled_interactions,

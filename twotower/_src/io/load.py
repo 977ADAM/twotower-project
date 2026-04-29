@@ -9,7 +9,7 @@ from typing import Any, Protocol
 import torch
 
 from twotower._src.config import TwoTowerConfig
-from twotower._src.features import FeatureMetadata
+from twotower._src.data.features import FeatureMetadata
 
 
 @dataclass(slots=True)
