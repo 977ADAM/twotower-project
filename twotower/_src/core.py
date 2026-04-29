@@ -85,8 +85,8 @@ class TwoTower(TwoTowerBase):
 
         train_df, valid_df, test_df = split_interactions(interactions_df)
 
-        model = TwoTower(epochs=10, tower_dims=(128, 64))
-        model.fit(train_df, validation_data=valid_df)
+        model = TwoTower(tower_dims=(128, 64))
+        model.fit(train_df, validation_data=valid_df, epochs=10)
         recommendations = model.predict(user_ids=[1, 2, 3], top_k=10)
         metrics = model.evaluate(test_df)
         model.save_model("model.pth")
@@ -96,50 +96,23 @@ class TwoTower(TwoTowerBase):
     def __init__(
         self,
         *,
-        user_col: str = "user_id",
-        item_col: str = "banner_id",
         user_embedding_dim: int = 64,
         item_embedding_dim: int = 64,
         side_feature_embedding_dim: int = 8,
         hidden_dim: int = 64,
         tower_dims: tuple[int, ...] = (128, 64),
         dropout: float = 0.0,
-        retrieval_temperature: float = 0.1,
-        learning_rate: float = 1e-3,
-        weight_decay: float = 0.0,
-        batch_size: int = 2048,
-        epochs: int = 25,
-        eval_top_ks: tuple[int, ...] = (50, 100, 300),
-        max_eval_users: int = 500,
-        top_k: int = 100,
-        eval_during_training: bool = True,
-        seed: int = 42,
-        device: str | None = "cpu",
     ):
-        config = _Config(
-            user_embedding_dim=user_embedding_dim,
-            item_embedding_dim=item_embedding_dim,
-            side_feature_embedding_dim=side_feature_embedding_dim,
-            hidden_dim=hidden_dim,
-            tower_dims=tower_dims,
-            dropout=dropout,
-            retrieval_temperature=retrieval_temperature,
-            learning_rate=learning_rate,
-            weight_decay=weight_decay,
-            batch_size=batch_size,
-            epochs=epochs,
-            eval_top_ks=eval_top_ks,
-            max_eval_users=max_eval_users,
-            top_k=top_k,
-            eval_during_training=eval_during_training,
-            seed=seed,
-            device=device,
-        )
-        super().__init__(config)
-        self.config = config
-        self.user_col = user_col
-        self.item_col = item_col
-        self.device = self.resolve_device(config.device)
+        super().__init__()
+        self.user_embedding_dim = user_embedding_dim
+        self.item_embedding_dim = item_embedding_dim
+        self.side_feature_embedding_dim = side_feature_embedding_dim
+        self.hidden_dim = hidden_dim
+        self.tower_dims = tower_dims
+        self.dropout = dropout
+        self.user_col: str = "user_id"
+        self.item_col: str = "banner_id"
+        self.device: torch.device = torch.device("cpu")
         self.user_id_to_idx: dict[int, int] = {}
         self.item_id_to_idx: dict[int, int] = {}
         self.idx_to_user_id: list[int] = []
@@ -167,33 +140,57 @@ class TwoTower(TwoTowerBase):
         train_df: pd.DataFrame,
         *,
         validation_data: pd.DataFrame,
+        user_col: str = "user_id",
+        item_col: str = "banner_id",
         users_df: pd.DataFrame | None = None,
         items_df: pd.DataFrame | None = None,
         user_feature_config: FeatureConfig | None = None,
         item_feature_config: FeatureConfig | None = None,
         negative_sampling: NegativeSampling = NegativeSampling(),
-        early_stopping: EarlyStopping | None = EarlyStopping(),
+        learning_rate: float = 1e-3,
+        weight_decay: float = 0.0,
+        batch_size: int = 2048,
+        epochs: int = 25,
+        retrieval_temperature: float = 0.1,
+        eval_top_ks: tuple[int, ...] = (50, 100, 300),
+        max_eval_users: int = 500,
+        top_k: int = 100,
+        eval_during_training: bool = True,
+        seed: int = 42,
+        device: str | None = "cpu",
+        patience: int | None = 5,
+        early_stopping_metric: str = "valid_loss",
+        min_delta: float = 1e-4,
     ) -> list[dict[str, float]]:
-        """Fit the model on interaction pairs.
+        """Fit the model on interaction pairs."""
+        self.user_col = user_col
+        self.item_col = item_col
+        self.device = self.resolve_device(device)
+        self.config = _Config(
+            user_embedding_dim=self.user_embedding_dim,
+            item_embedding_dim=self.item_embedding_dim,
+            side_feature_embedding_dim=self.side_feature_embedding_dim,
+            hidden_dim=self.hidden_dim,
+            tower_dims=self.tower_dims,
+            dropout=self.dropout,
+            retrieval_temperature=retrieval_temperature,
+            learning_rate=learning_rate,
+            weight_decay=weight_decay,
+            batch_size=batch_size,
+            epochs=epochs,
+            eval_top_ks=eval_top_ks,
+            max_eval_users=max_eval_users,
+            top_k=top_k,
+            eval_during_training=eval_during_training,
+            seed=seed,
+            device=device,
+        )
+        early_stopping = (
+            EarlyStopping(patience=patience, metric=early_stopping_metric, min_delta=min_delta)
+            if patience is not None
+            else None
+        )
 
-        Args:
-            train_df: Training interactions. Must contain ``user_col``, ``item_col``,
-                and ``label`` columns.
-            validation_data: Validation interactions in the same format as ``train_df``.
-            users_df: Side-feature table for users. Must be provided together
-                with ``items_df`` and the feature config arguments.
-            items_df: Side-feature table for items.
-            user_feature_config: Declares which columns in ``users_df`` to encode
-                as side features.
-            item_feature_config: Declares which columns in ``items_df`` to encode
-                as side features.
-            negative_sampling: Strategy for drawing negative examples.
-            early_stopping: Early stopping configuration. Pass ``None`` to train
-                for the full number of epochs.
-
-        Returns:
-            A list of per-epoch metric dicts (train loss, valid loss, recall@k, …).
-        """
         prepared_train_df, prepared_valid_df, reference_train_df, reference_valid_df = self._prepare_fit_inputs(
             train_df=train_df,
             valid_df=validation_data,
@@ -317,6 +314,12 @@ class TwoTower(TwoTowerBase):
 
     def apply_loaded_checkpoint_state(self, state: LoadedCheckpointState) -> None:
         self.config = state.config
+        self.user_embedding_dim = state.config.user_embedding_dim
+        self.item_embedding_dim = state.config.item_embedding_dim
+        self.side_feature_embedding_dim = state.config.side_feature_embedding_dim
+        self.hidden_dim = state.config.hidden_dim
+        self.tower_dims = state.config.tower_dims
+        self.dropout = state.config.dropout
         self.user_col = state.user_col
         self.item_col = state.item_col
         self.device = state.device

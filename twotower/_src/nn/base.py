@@ -8,9 +8,9 @@ from .tower import Tower
 
 
 class TwoTowerBase(nn.Module):
-    def __init__(self, config: _Config):
+    def __init__(self) -> None:
         super().__init__()
-        self.config = config
+        self.config: _Config | None = None
         self.user_tower: Tower | None = None
         self.item_tower: Tower | None = None
 
@@ -28,6 +28,7 @@ class TwoTowerBase(nn.Module):
         return (self.encode_users(user_input) * self.encode_items(item_input)).sum(dim=-1)
 
     def retrieval_logits(self, user_input: torch.Tensor, item_input: torch.Tensor) -> torch.Tensor:
+        assert self.config is not None
         return torch.matmul(
             self.encode_users(user_input),
             self.encode_items(item_input).T,

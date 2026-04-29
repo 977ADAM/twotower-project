@@ -6,7 +6,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from twotower import EarlyStopping, TwoTower
+from twotower import TwoTower
 
 
 @pytest.fixture
@@ -51,7 +51,7 @@ def test_fit_with_early_stopping_can_halt_early(small_interactions):
     train, valid, _ = small_interactions
     # lr=0 → loss never changes → early stopping triggers after patience+1 epochs
     model = TwoTower(epochs=20, batch_size=8, learning_rate=0.0, eval_during_training=False, device="cpu", seed=0)
-    history = model.fit(train, validation_data=valid, early_stopping=EarlyStopping(patience=2, min_delta=0.0))
+    history = model.fit(train, validation_data=valid, patience=2, min_delta=0.0)
     assert len(history) < 20
 
 

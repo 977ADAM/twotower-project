@@ -3,7 +3,7 @@ from rich.console import Console
 from src.config import Config
 from src.data import bucketize_age, load_training_frames
 
-from twotower import EarlyStopping, FeatureConfig, MultiFeatureSpec, NegativeSampling, TwoTower
+from twotower import FeatureConfig, MultiFeatureSpec, NegativeSampling, TwoTower
 
 console = Console()
 
@@ -51,11 +51,7 @@ def main():
         ),
     )
 
-    model = TwoTower(
-        tower_dims=(128,),
-        dropout=0.1,
-        weight_decay=1e-5,
-    )
+    model = TwoTower(tower_dims=(128,), dropout=0.1)
     history = model.fit(
         train_df,
         validation_data=valid_df,
@@ -64,7 +60,9 @@ def main():
         user_feature_config=user_feature_config,
         item_feature_config=item_feature_config,
         negative_sampling=NegativeSampling(observed_ratio=0.8),
-        early_stopping=EarlyStopping(patience=5, metric="recall_at_100"),
+        weight_decay=1e-5,
+        patience=5,
+        early_stopping_metric="recall_at_100",
     )
     console.print({"history_tail": history[-3:]})
 
