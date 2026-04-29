@@ -28,13 +28,7 @@ def small_interactions():
 def fitted_model(small_interactions):
     train, valid, _ = small_interactions
     model = TwoTower(epochs=2, batch_size=8, eval_during_training=False, device="cpu", seed=0)
-    model.fit(
-        X_train=train[["user_id", "banner_id"]],
-        y_train=train["label"],
-        X_valid=valid[["user_id", "banner_id"]],
-        y_valid=valid["label"],
-        early_stopping=None,
-    )
+    model.fit(train, validation_data=valid, early_stopping=None)
     return model
 
 
@@ -57,13 +51,7 @@ def test_fit_with_early_stopping_can_halt_early(small_interactions):
     train, valid, _ = small_interactions
     # lr=0 → loss never changes → early stopping triggers after patience+1 epochs
     model = TwoTower(epochs=20, batch_size=8, learning_rate=0.0, eval_during_training=False, device="cpu", seed=0)
-    history = model.fit(
-        X_train=train[["user_id", "banner_id"]],
-        y_train=train["label"],
-        X_valid=valid[["user_id", "banner_id"]],
-        y_valid=valid["label"],
-        early_stopping=EarlyStopping(patience=2, min_delta=0.0),
-    )
+    history = model.fit(train, validation_data=valid, early_stopping=EarlyStopping(patience=2, min_delta=0.0))
     assert len(history) < 20
 
 

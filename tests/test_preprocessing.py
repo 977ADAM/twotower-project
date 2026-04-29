@@ -7,36 +7,35 @@ from twotower._src.config import _Config
 from twotower._src.data.preprocessing import (
     build_evaluation_reference_data,
     build_id_mappings,
-    build_labeled_interactions,
     filter_and_sample_interactions,
+    normalize_fit_interactions,
     prepare_retrieval_pairs,
 )
 
-# ── build_labeled_interactions ────────────────────────────────────────────────
+# ── normalize_fit_interactions ────────────────────────────────────────────────
 
-def test_build_labeled_interactions_combines_x_and_y():
-    X = pd.DataFrame({"user_id": [1, 2], "banner_id": [10, 20]})
-    y = [1.0, 0.0]
-    df = build_labeled_interactions(X, y, split_name="train")
-    assert list(df.columns) == ["user_id", "banner_id", "label"]
-    assert df["label"].tolist() == [1.0, 0.0]
+def test_normalize_fit_interactions_returns_correct_columns():
+    df = pd.DataFrame({"user_id": [1, 2], "banner_id": [10, 20], "label": [1.0, 0.0]})
+    result = normalize_fit_interactions(df, split_name="train")
+    assert list(result.columns) == ["user_id", "banner_id", "label"]
+    assert result["label"].tolist() == [1.0, 0.0]
 
 
-def test_build_labeled_interactions_raises_for_missing_columns():
-    X = pd.DataFrame({"user_id": [1]})
+def test_normalize_fit_interactions_raises_for_missing_label():
+    df = pd.DataFrame({"user_id": [1], "banner_id": [10]})
+    with pytest.raises(ValueError, match="label"):
+        normalize_fit_interactions(df, split_name="train")
+
+
+def test_normalize_fit_interactions_raises_for_missing_item_col():
+    df = pd.DataFrame({"user_id": [1], "label": [1.0]})
     with pytest.raises(ValueError, match="banner_id"):
-        build_labeled_interactions(X, [1.0], split_name="train")
+        normalize_fit_interactions(df, split_name="train")
 
 
-def test_build_labeled_interactions_raises_for_length_mismatch():
-    X = pd.DataFrame({"user_id": [1, 2], "banner_id": [10, 20]})
-    with pytest.raises(ValueError, match="same length"):
-        build_labeled_interactions(X, [1.0], split_name="train")
-
-
-def test_build_labeled_interactions_raises_for_non_dataframe():
+def test_normalize_fit_interactions_raises_for_non_dataframe():
     with pytest.raises(TypeError):
-        build_labeled_interactions([[1, 10]], [1.0], split_name="train")
+        normalize_fit_interactions([[1, 10, 1.0]], split_name="train")
 
 
 # ── build_id_mappings ─────────────────────────────────────────────────────────

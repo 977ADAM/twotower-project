@@ -1,14 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Sequence, TypeAlias
 
 import pandas as pd
 
 from twotower._src.config import _Config
 from twotower._src.data.split import normalize_interactions
-
-TargetLike: TypeAlias = pd.Series | Sequence[float]
 
 
 @dataclass(slots=True)
@@ -19,36 +16,27 @@ class IdMappings:
     idx_to_item_id: list[int]
 
 
-def build_labeled_interactions(
-    X: pd.DataFrame,
-    y: TargetLike,
+def normalize_fit_interactions(
+    df: pd.DataFrame,
     split_name: str,
     user_col: str = "user_id",
     item_col: str = "banner_id",
 ) -> pd.DataFrame:
-    """Validate X and y, combine into a labeled interactions DataFrame."""
-    if not isinstance(X, pd.DataFrame):
+    """Validate and normalize a labeled interactions DataFrame for fitting."""
+    if not isinstance(df, pd.DataFrame):
         raise TypeError(
-            f"{split_name} features must be a pandas DataFrame with "
-            f"'{user_col}' and '{item_col}' columns."
+            f"{split_name} interactions must be a pandas DataFrame with "
+            f"'{user_col}', '{item_col}', and 'label' columns."
         )
-    required_columns = {user_col, item_col}
-    missing_columns = required_columns.difference(X.columns)
+    required_columns = {user_col, item_col, "label"}
+    missing_columns = required_columns.difference(df.columns)
     if missing_columns:
         raise ValueError(
-            f"{split_name} features are missing required columns: {sorted(missing_columns)}"
+            f"{split_name} interactions are missing required columns: {sorted(missing_columns)}"
         )
 
-    y_series = y if isinstance(y, pd.Series) else pd.Series(y, name="label")
-    if len(X) != len(y_series):
-        raise ValueError(
-            f"{split_name} features and labels must have the same length: "
-            f"{len(X)} != {len(y_series)}"
-        )
-
-    prepared_df = X.loc[:, [user_col, item_col]].copy()
+    prepared_df = df.loc[:, [user_col, item_col, "label"]].copy()
     prepared_df = prepared_df.rename(columns={user_col: "user_id", item_col: "banner_id"})
-    prepared_df["label"] = y_series.to_numpy()
     return prepared_df.reset_index(drop=True)
 
 

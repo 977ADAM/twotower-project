@@ -57,10 +57,8 @@ def main():
         weight_decay=1e-5,
     )
     history = model.fit(
-        X_train=train_df.loc[:, ["user_id", "banner_id"]].copy(),
-        y_train=train_df["label"].copy(),
-        X_valid=valid_df.loc[:, ["user_id", "banner_id"]].copy(),
-        y_valid=valid_df["label"].copy(),
+        train_df,
+        validation_data=valid_df,
         users_df=users_df,
         items_df=items_df,
         user_feature_config=user_feature_config,

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from os import PathLike
 from pathlib import Path
-from typing import Any, Sequence, TypeAlias
+from typing import Any
 
 import pandas as pd
 import torch
@@ -21,9 +21,9 @@ from twotower._src.data.features import (
 from twotower._src.data.preprocessing import (
     build_evaluation_reference_data,
     build_id_mappings,
-    build_labeled_interactions,
     filter_and_sample_interactions,
     normalize_and_filter_interactions,
+    normalize_fit_interactions,
     prepare_evaluation_inputs,
     prepare_retrieval_pairs,
 )
@@ -40,12 +40,10 @@ from twotower._src.training.fit import (
     build_pairwise_loader,
     compute_bpr_loss,
 )
+from twotower._src.metrics import mean_recall, user_recall
 from twotower._src.utils.traceback_utils import filter_traceback
 
 console = Console()
-
-TargetLike: TypeAlias = pd.Series | Sequence[float]
-
 
 class TwoTower(TwoTowerBase):
     """Two-tower retrieval model with a scikit-learn–style API.
@@ -88,12 +86,7 @@ class TwoTower(TwoTowerBase):
         train_df, valid_df, test_df = split_interactions(interactions_df)
 
         model = TwoTower(epochs=10, tower_dims=(128, 64))
-        model.fit(
-            X_train=train_df.drop(columns=["clicks"]),
-            y_train=train_df["clicks"],
-            X_valid=valid_df.drop(columns=["clicks"]),
-            y_valid=valid_df["clicks"],
-        )
+        model.fit(train_df, validation_data=valid_df)
         recommendations = model.predict(user_ids=[1, 2, 3], top_k=10)
         metrics = model.evaluate(test_df)
         model.save_model("model.pth")
@@ -171,11 +164,9 @@ class TwoTower(TwoTowerBase):
     @filter_traceback
     def fit(
         self,
+        train_df: pd.DataFrame,
         *,
-        X_train: pd.DataFrame,
-        y_train: TargetLike,
-        X_valid: pd.DataFrame,
-        y_valid: TargetLike,
+        validation_data: pd.DataFrame,
         users_df: pd.DataFrame | None = None,
         items_df: pd.DataFrame | None = None,
         user_feature_config: FeatureConfig | None = None,
@@ -186,12 +177,9 @@ class TwoTower(TwoTowerBase):
         """Fit the model on interaction pairs.
 
         Args:
-            X_train: Training interactions. Must contain the columns named by
-                ``user_col`` and ``item_col``.
-            y_train: Binary labels for ``X_train`` (positive = 1, negative = 0).
-                May be a pandas Series or any sequence of floats.
-            X_valid: Validation interactions in the same format as ``X_train``.
-            y_valid: Binary labels for ``X_valid``.
+            train_df: Training interactions. Must contain ``user_col``, ``item_col``,
+                and ``label`` columns.
+            validation_data: Validation interactions in the same format as ``train_df``.
             users_df: Side-feature table for users. Must be provided together
                 with ``items_df`` and the feature config arguments.
             items_df: Side-feature table for items.
@@ -207,10 +195,8 @@ class TwoTower(TwoTowerBase):
             A list of per-epoch metric dicts (train loss, valid loss, recall@k, …).
         """
         prepared_train_df, prepared_valid_df, reference_train_df, reference_valid_df = self._prepare_fit_inputs(
-            X_train=X_train,
-            y_train=y_train,
-            X_valid=X_valid,
-            y_valid=y_valid,
+            train_df=train_df,
+            valid_df=validation_data,
         )
         self.train_df = reference_train_df
         self.valid_df = reference_valid_df
@@ -465,9 +451,9 @@ class TwoTower(TwoTowerBase):
                 excluded_item_ids=seen_items_by_user.get(user_id, set()),
             )
             if actual_items:
-                recalls.append(len(actual_items & predicted_items) / len(actual_items))
+                recalls.append(user_recall(actual_items, predicted_items))
 
-        return float(sum(recalls) / len(recalls)) if recalls else 0.0
+        return mean_recall(recalls)
 
     def popularity_recall_at_k(self, evaluation_df: pd.DataFrame, top_k: int) -> float:
         candidate_user_ids = self.get_eval_user_ids(evaluation_df)
@@ -495,9 +481,9 @@ class TwoTower(TwoTowerBase):
                 if len(predicted_items) == top_k:
                     break
 
-            recalls.append(len(actual_items & set(predicted_items)) / len(actual_items))
+            recalls.append(user_recall(actual_items, set(predicted_items)))
 
-        return float(sum(recalls) / len(recalls)) if recalls else 0.0
+        return mean_recall(recalls)
 
     def build_towers(self, num_users: int, num_items: int) -> None:
         self.user_tower = Tower(
@@ -585,17 +571,11 @@ class TwoTower(TwoTowerBase):
     def _prepare_fit_inputs(
         self,
         *,
-        X_train: pd.DataFrame,
-        y_train: TargetLike,
-        X_valid: pd.DataFrame,
-        y_valid: TargetLike,
+        train_df: pd.DataFrame,
+        valid_df: pd.DataFrame,
     ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-        train_df = build_labeled_interactions(
-            X_train, y_train, split_name="train", user_col=self.user_col, item_col=self.item_col
-        )
-        valid_df = build_labeled_interactions(
-            X_valid, y_valid, split_name="valid", user_col=self.user_col, item_col=self.item_col
-        )
+        train_df = normalize_fit_interactions(train_df, split_name="train", user_col=self.user_col, item_col=self.item_col)
+        valid_df = normalize_fit_interactions(valid_df, split_name="valid", user_col=self.user_col, item_col=self.item_col)
 
         mappings = build_id_mappings(train_df)
         self.user_id_to_idx = mappings.user_id_to_idx
