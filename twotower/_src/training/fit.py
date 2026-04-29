@@ -360,7 +360,11 @@ class TwoTowerTrainer:
 
     def build_optimizer(self, model: TrainableTwoTower) -> torch.optim.Optimizer:
         """Create the optimizer used by the training loop."""
-        return torch.optim.Adam(model.parameters(), lr=self.config.learning_rate)
+        return torch.optim.Adam(
+            model.parameters(),
+            lr=self.config.learning_rate,
+            weight_decay=self.config.weight_decay,
+        )
 
     def build_loss(self) -> nn.Module:
         """Create the retrieval loss."""
@@ -440,7 +444,7 @@ class TwoTowerTrainer:
                 in_batch: torch.Tensor = torch.nn.functional.cross_entropy(logits, labels)
                 loss = loss + negative_sampling.in_batch_loss_weight * in_batch
 
-            loss.backward()
+            loss.backward()  # type: ignore[no-untyped-call]
             optimizer.step()
 
             batch_size = user_batch.size(0)

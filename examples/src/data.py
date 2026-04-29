@@ -1,7 +1,7 @@
 import pandas as pd
 from rich.console import Console
-
 from src.config import Config
+
 from twotower import split_interactions
 
 console = Console()

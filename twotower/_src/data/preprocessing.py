@@ -70,10 +70,9 @@ def filter_and_sample_interactions(
     user_id_to_idx: dict[int, int],
     item_id_to_idx: dict[int, int],
     config: TwoTowerConfig,
-    apply_sampling: bool = False,
     sort_by_event_date: bool = False,
 ) -> pd.DataFrame:
-    """Filter to known user/item IDs, optionally balance-sample, and sort by date."""
+    """Filter to known user/item IDs and sort by date."""
     required_columns = {"user_id", "banner_id", "label"}
     missing_columns = required_columns.difference(interactions_df.columns)
     if missing_columns:
@@ -94,23 +93,6 @@ def filter_and_sample_interactions(
         & interactions["banner_id"].isin(item_id_to_idx)
     ]
 
-    if apply_sampling and config.max_samples and len(interactions) > config.max_samples:
-        positives = interactions[interactions["label"] == 1.0]
-        negatives = interactions[interactions["label"] == 0.0]
-        positive_target = min(len(positives), config.max_samples // 2)
-        negative_target = min(len(negatives), config.max_samples - positive_target)
-
-        sampled_frames = []
-        if positive_target:
-            sampled_frames.append(
-                positives.sample(n=positive_target, random_state=config.seed, replace=False)
-            )
-        if negative_target:
-            sampled_frames.append(
-                negatives.sample(n=negative_target, random_state=config.seed, replace=False)
-            )
-        interactions = pd.concat(sampled_frames, ignore_index=True)
-
     if sort_by_event_date and "event_date" in interactions.columns:
         interactions = interactions.sort_values("event_date")
 
@@ -123,28 +105,18 @@ def prepare_retrieval_pairs(
     user_id_to_idx: dict[int, int],
     item_id_to_idx: dict[int, int],
     config: TwoTowerConfig,
-    apply_sampling: bool,
     split_name: str,
 ) -> pd.DataFrame:
-    """Filter to positive interactions only; optionally sample to max_samples."""
+    """Filter to positive interactions only."""
     filtered_interactions = filter_and_sample_interactions(
         interactions_df,
         user_id_to_idx=user_id_to_idx,
         item_id_to_idx=item_id_to_idx,
         config=config,
-        apply_sampling=False,
-        sort_by_event_date=False,
     )
     positive_interactions = filtered_interactions[filtered_interactions["label"] == 1.0].copy()
     if positive_interactions.empty:
         raise ValueError(f"{split_name} split has no positive interactions for retrieval training.")
-
-    if apply_sampling and config.max_samples and len(positive_interactions) > config.max_samples:
-        positive_interactions = positive_interactions.sample(
-            n=config.max_samples,
-            random_state=config.seed,
-            replace=False,
-        )
 
     return positive_interactions.reset_index(drop=True)
 
@@ -197,7 +169,6 @@ def normalize_and_filter_interactions(
     user_id_to_idx: dict[int, int],
     item_id_to_idx: dict[int, int],
     config: TwoTowerConfig,
-    apply_sampling: bool = False,
 ) -> pd.DataFrame:
     """Normalize raw or pre-labeled interactions, then filter to known IDs."""
     if "label" in interactions_df.columns:
@@ -212,7 +183,6 @@ def normalize_and_filter_interactions(
         user_id_to_idx=user_id_to_idx,
         item_id_to_idx=item_id_to_idx,
         config=config,
-        apply_sampling=apply_sampling,
         sort_by_event_date=True,
     )
 

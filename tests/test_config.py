@@ -10,7 +10,7 @@ def test_default_config_is_valid():
     assert config.epochs == 25
     assert config.batch_size == 2048
     assert config.device == "cpu"
-    assert config.tower_dims == (256, 128)
+    assert config.tower_dims == (128, 64)
     assert config.dropout == 0.0
 
 
@@ -31,8 +31,7 @@ def test_config_is_immutable():
     ("retrieval_temperature", 0.0),
     ("retrieval_temperature", -0.1),
     ("learning_rate", -0.01),
-    ("max_samples", 0),
-    ("max_samples", -100),
+    ("weight_decay", -0.01),
     ("max_eval_users", 0),
     ("top_k", 0),
     ("dropout", -0.1),
@@ -88,6 +87,3 @@ def test_config_allows_valid_dropout():
     assert config.dropout == 0.5
 
 
-def test_config_allows_none_max_samples():
-    config = TwoTowerConfig(max_samples=None)
-    assert config.max_samples is None

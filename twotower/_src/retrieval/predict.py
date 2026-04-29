@@ -3,7 +3,6 @@ from __future__ import annotations
 from typing import Protocol, Sequence
 
 import torch
-import torch.nn.functional as F
 
 from twotower._src.config import TwoTowerConfig
 
@@ -146,8 +145,8 @@ class TwoTowerPredictor:
         if not candidate_positions:
             return []
 
-        user_embedding = self._normalize_user_embedding(model.get_user_embedding(user_id))
-        candidate_embeddings = self._normalize_item_embeddings(item_embeddings[candidate_positions])
+        user_embedding = model.get_user_embedding(user_id)
+        candidate_embeddings = item_embeddings[candidate_positions]
         scores = torch.matmul(candidate_embeddings, user_embedding)
 
         k = min(top_k, scores.size(0))
@@ -197,15 +196,3 @@ class TwoTowerPredictor:
             deduplicated_ids.append(normalized_id)
         return deduplicated_ids
 
-    @staticmethod
-    def _normalize_user_embedding(user_embedding: torch.Tensor) -> torch.Tensor:
-        normalized_user_embedding = user_embedding.reshape(1, -1)
-        normalized_user_embedding = F.normalize(normalized_user_embedding, dim=-1)
-        return normalized_user_embedding.squeeze(0)
-
-    @staticmethod
-    def _normalize_item_embeddings(item_embeddings: torch.Tensor) -> torch.Tensor:
-        normalized_item_embeddings = item_embeddings
-        if normalized_item_embeddings.ndim == 1:
-            normalized_item_embeddings = normalized_item_embeddings.unsqueeze(0)
-        return F.normalize(normalized_item_embeddings, dim=-1)

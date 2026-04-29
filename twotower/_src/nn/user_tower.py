@@ -2,7 +2,6 @@ from typing import cast
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 from twotower._src.config import TwoTowerConfig
 from twotower._src.data.features import FeatureMetadata, FeatureTables
@@ -67,7 +66,6 @@ class UserTower(nn.Module):
 
         x = torch.cat(feature_parts, dim=-1)
         x = self.mlp(x)
-        x = F.relu(x)
         return cast(torch.Tensor, self.norm(x))
 
     def _register_feature_buffers(

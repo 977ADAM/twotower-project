@@ -69,10 +69,10 @@ class TwoTower(TwoTowerBase):
             Must be in ``[0, 1)``.
         retrieval_temperature: Temperature for the in-batch InfoNCE loss.
         learning_rate: Adam optimizer learning rate.
+        weight_decay: L2 regularization coefficient for the Adam optimizer.
+            Helps prevent overfitting on small datasets.
         batch_size: Mini-batch size for training.
         epochs: Maximum number of training epochs.
-        max_samples: Cap on the number of positive training pairs per epoch.
-            ``None`` uses all available pairs.
         eval_top_ks: Top-k values used when computing recall metrics.
         max_eval_users: Maximum number of users sampled for evaluation.
         top_k: Default number of recommendations returned by ``predict``.
@@ -87,7 +87,7 @@ class TwoTower(TwoTowerBase):
 
         train_df, valid_df, test_df = split_interactions(interactions_df)
 
-        model = TwoTower(epochs=10, tower_dims=(256, 128))
+        model = TwoTower(epochs=10, tower_dims=(128, 64))
         model.fit(
             X_train=train_df.drop(columns=["clicks"]),
             y_train=train_df["clicks"],
@@ -109,13 +109,13 @@ class TwoTower(TwoTowerBase):
         item_embedding_dim: int = 64,
         side_feature_embedding_dim: int = 8,
         hidden_dim: int = 64,
-        tower_dims: tuple[int, ...] = (256, 128),
+        tower_dims: tuple[int, ...] = (128, 64),
         dropout: float = 0.0,
         retrieval_temperature: float = 0.1,
         learning_rate: float = 1e-3,
+        weight_decay: float = 0.0,
         batch_size: int = 2048,
         epochs: int = 25,
-        max_samples: int | None = 250_000,
         eval_top_ks: tuple[int, ...] = (50, 100, 300),
         max_eval_users: int = 500,
         top_k: int = 100,
@@ -132,9 +132,9 @@ class TwoTower(TwoTowerBase):
             dropout=dropout,
             retrieval_temperature=retrieval_temperature,
             learning_rate=learning_rate,
+            weight_decay=weight_decay,
             batch_size=batch_size,
             epochs=epochs,
-            max_samples=max_samples,
             eval_top_ks=eval_top_ks,
             max_eval_users=max_eval_users,
             top_k=top_k,
@@ -355,7 +355,6 @@ class TwoTower(TwoTowerBase):
             user_id_to_idx=self.user_id_to_idx,
             item_id_to_idx=self.item_id_to_idx,
             config=self.config,
-            apply_sampling=False,
         )
         positive_test_df = (
             prepared_test_df.copy()
@@ -365,7 +364,6 @@ class TwoTower(TwoTowerBase):
                 user_id_to_idx=self.user_id_to_idx,
                 item_id_to_idx=self.item_id_to_idx,
                 config=self.config,
-                apply_sampling=False,
                 split_name="test",
             )
         )
@@ -558,9 +556,8 @@ class TwoTower(TwoTowerBase):
             dtype=torch.long,
             device=self.device,
         )
-        assert self.user_tower is not None
         with torch.no_grad():
-            user_embedding: torch.Tensor = self.user_tower(user_index)
+            user_embedding: torch.Tensor = self.encode_users(user_index)
         return user_embedding.squeeze(0)
 
     def get_user_feature_metadata_dict(self) -> dict[str, object]:
@@ -609,7 +606,6 @@ class TwoTower(TwoTowerBase):
             user_id_to_idx=self.user_id_to_idx,
             item_id_to_idx=self.item_id_to_idx,
             config=self.config,
-            apply_sampling=True,
             split_name="train",
         )
         prepared_valid_df = prepare_retrieval_pairs(
@@ -617,7 +613,6 @@ class TwoTower(TwoTowerBase):
             user_id_to_idx=self.user_id_to_idx,
             item_id_to_idx=self.item_id_to_idx,
             config=self.config,
-            apply_sampling=False,
             split_name="valid",
         )
         reference_train_df = filter_and_sample_interactions(
@@ -625,16 +620,12 @@ class TwoTower(TwoTowerBase):
             user_id_to_idx=self.user_id_to_idx,
             item_id_to_idx=self.item_id_to_idx,
             config=self.config,
-            apply_sampling=False,
-            sort_by_event_date=False,
         )
         reference_valid_df = filter_and_sample_interactions(
             valid_df,
             user_id_to_idx=self.user_id_to_idx,
             item_id_to_idx=self.item_id_to_idx,
             config=self.config,
-            apply_sampling=False,
-            sort_by_event_date=False,
         )
         return prepared_train_df, prepared_valid_df, reference_train_df, reference_valid_df
 

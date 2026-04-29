@@ -73,18 +73,6 @@ def test_filter_removes_unknown_users_and_items(interactions_df):
     assert 99 not in result["user_id"].tolist()
 
 
-def test_filter_applies_max_samples(interactions_df):
-    config = TwoTowerConfig(max_samples=2, seed=0)
-    result = filter_and_sample_interactions(
-        interactions_df,
-        user_id_to_idx={1: 0, 2: 1},
-        item_id_to_idx={10: 0, 20: 1, 30: 2},
-        config=config,
-        apply_sampling=True,
-    )
-    assert len(result) <= 2
-
-
 def test_filter_raises_for_missing_columns():
     config = TwoTowerConfig()
     df = pd.DataFrame({"user_id": [1], "banner_id": [10]})
@@ -101,7 +89,6 @@ def test_prepare_retrieval_pairs_returns_only_positives(interactions_df):
         user_id_to_idx={1: 0, 2: 1},
         item_id_to_idx={10: 0, 20: 1, 30: 2},
         config=config,
-        apply_sampling=False,
         split_name="train",
     )
     assert (result["label"] == 1.0).all()
@@ -112,7 +99,7 @@ def test_prepare_retrieval_pairs_raises_when_no_positives():
     df = pd.DataFrame({"user_id": [1], "banner_id": [10], "label": [0.0]})
     with pytest.raises(ValueError, match="no positive interactions"):
         prepare_retrieval_pairs(
-            df, user_id_to_idx={1: 0}, item_id_to_idx={10: 0}, config=config, apply_sampling=False, split_name="train"
+            df, user_id_to_idx={1: 0}, item_id_to_idx={10: 0}, config=config, split_name="train"
         )
 
 

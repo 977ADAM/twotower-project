@@ -12,7 +12,6 @@ class Config:
     model_save_path: str = field(default_factory=lambda: str(_EXAMPLES_DIR / "artifacts/twotower_model.pth"))
     validation_ratio: float = 0.2
     test_ratio: float = 0.1
-    max_samples: int | None = 250_000
     top_k: int = 100
     sample_user_count: int = 3
     sample_prediction_top_k: int = 5
