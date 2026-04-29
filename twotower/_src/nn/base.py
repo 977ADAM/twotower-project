@@ -4,16 +4,15 @@ import torch.nn.functional as F
 
 from twotower._src.config import _Config
 
-from .item_tower import ItemTower
-from .user_tower import UserTower
+from .tower import Tower
 
 
 class TwoTowerBase(nn.Module):
     def __init__(self, config: _Config):
         super().__init__()
         self.config = config
-        self.user_tower: UserTower | None = None
-        self.item_tower: ItemTower | None = None
+        self.user_tower: Tower | None = None
+        self.item_tower: Tower | None = None
 
     def encode_users(self, user_input: torch.Tensor) -> torch.Tensor:
         if self.user_tower is None:

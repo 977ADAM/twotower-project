@@ -9,17 +9,18 @@ from twotower._src.data.features import FeatureMetadata, FeatureTables
 from .mlp import build_mlp
 
 
-class UserTower(nn.Module):
+class Tower(nn.Module):
     def __init__(
         self,
         num_embeddings: int,
+        embedding_dim: int,
         config: _Config,
         feature_tables: FeatureTables | None = None,
         feature_metadata: FeatureMetadata | None = None,
     ):
         super().__init__()
         self.feature_metadata = feature_metadata or FeatureMetadata.empty()
-        self.embedding = nn.Embedding(num_embeddings=num_embeddings, embedding_dim=config.user_embedding_dim)
+        self.embedding = nn.Embedding(num_embeddings=num_embeddings, embedding_dim=embedding_dim)
         self.scalar_feature_embeddings = nn.ModuleDict(
             {
                 feature_name: nn.Embedding(
@@ -40,7 +41,7 @@ class UserTower(nn.Module):
         )
         self._register_feature_buffers(num_embeddings, feature_tables)
 
-        total_input_dim = config.user_embedding_dim
+        total_input_dim = embedding_dim
         total_input_dim += len(self.feature_metadata.scalar_feature_names) * config.side_feature_embedding_dim
         total_input_dim += len(self.feature_metadata.multi_feature_names) * config.side_feature_embedding_dim
 
@@ -52,15 +53,15 @@ class UserTower(nn.Module):
         )
         self.norm = nn.LayerNorm(config.hidden_dim)
 
-    def forward(self, user_input: torch.Tensor) -> torch.Tensor:
-        feature_parts = [self.embedding(user_input)]
+    def forward(self, entity_input: torch.Tensor) -> torch.Tensor:
+        feature_parts = [self.embedding(entity_input)]
 
         for feature_name in self.feature_metadata.scalar_feature_names:
-            feature_indices = getattr(self, f"scalar_feature_{feature_name}").index_select(0, user_input)
+            feature_indices = getattr(self, f"scalar_feature_{feature_name}").index_select(0, entity_input)
             feature_parts.append(self.scalar_feature_embeddings[feature_name](feature_indices))
 
         for feature_name in self.feature_metadata.multi_feature_names:
-            feature_indices = getattr(self, f"multi_feature_{feature_name}").index_select(0, user_input)
+            feature_indices = getattr(self, f"multi_feature_{feature_name}").index_select(0, entity_input)
             pooled_embedding = self.multi_feature_embeddings[feature_name](feature_indices).mean(dim=1)
             feature_parts.append(pooled_embedding)
 

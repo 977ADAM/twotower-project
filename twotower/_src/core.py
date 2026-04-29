@@ -29,7 +29,7 @@ from twotower._src.data.preprocessing import (
 )
 from twotower._src.io.load import LoadedCheckpointState, TwoTowerModelLoader
 from twotower._src.io.save import TwoTowerModelSaver
-from twotower._src.nn import ItemTower, TwoTowerBase, UserTower
+from twotower._src.nn import Tower, TwoTowerBase
 from twotower._src.retrieval.evaluate import EvaluateInputs, TwoTowerEvaluator
 from twotower._src.retrieval.predict import TwoTowerPredictor
 from twotower._src.training.fit import (
@@ -500,14 +500,16 @@ class TwoTower(TwoTowerBase):
         return float(sum(recalls) / len(recalls)) if recalls else 0.0
 
     def build_towers(self, num_users: int, num_items: int) -> None:
-        self.user_tower = UserTower(
+        self.user_tower = Tower(
             num_users,
+            self.config.user_embedding_dim,
             self.config,
             feature_tables=self._user_feature_tables,
             feature_metadata=self._user_feature_metadata,
         )
-        self.item_tower = ItemTower(
+        self.item_tower = Tower(
             num_items,
+            self.config.item_embedding_dim,
             self.config,
             feature_tables=self._item_feature_tables,
             feature_metadata=self._item_feature_metadata,

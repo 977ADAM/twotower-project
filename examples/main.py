@@ -52,8 +52,8 @@ def main():
     )
 
     model = TwoTower(
-        tower_dims=(64,),
-        dropout=0.2,
+        tower_dims=(128,),
+        dropout=0.1,
         weight_decay=1e-5,
     )
     history = model.fit(
@@ -65,7 +65,7 @@ def main():
         items_df=items_df,
         user_feature_config=user_feature_config,
         item_feature_config=item_feature_config,
-        negative_sampling=NegativeSampling(observed_ratio=0.8, in_batch_loss_weight=0.1),
+        negative_sampling=NegativeSampling(observed_ratio=0.8),
         early_stopping=EarlyStopping(patience=5, metric="recall_at_100"),
     )
     console.print({"history_tail": history[-3:]})

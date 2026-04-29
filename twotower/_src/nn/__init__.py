@@ -1,5 +1,4 @@
 from .base import TwoTowerBase
-from .item_tower import ItemTower
-from .user_tower import UserTower
+from .tower import Tower
 
-__all__ = ["UserTower", "ItemTower", "TwoTowerBase"]
+__all__ = ["Tower", "TwoTowerBase"]
