@@ -46,53 +46,6 @@ from twotower._src.utils.traceback_utils import filter_traceback
 console = Console()
 
 class TwoTower(TwoTowerBase):
-    """Two-tower retrieval model with a scikit-learn–style API.
-
-    Both towers share the same MLP architecture and embed users and items
-    into a common `hidden_dim`-dimensional space. Similarity is measured
-    with a dot product. Training minimises BPR loss with optional in-batch
-    InfoNCE contrastive loss.
-
-    Args:
-        user_col: Column name for user IDs in the interaction DataFrames.
-        item_col: Column name for item IDs in the interaction DataFrames.
-        user_embedding_dim: Dimensionality of the learned user ID embedding.
-        item_embedding_dim: Dimensionality of the learned item ID embedding.
-        side_feature_embedding_dim: Dimensionality of each side-feature embedding.
-        hidden_dim: Output embedding size for both towers.
-        tower_dims: Hidden layer sizes for the MLP inside each tower.
-            Each layer is followed by BatchNorm1d, ReLU, and optional Dropout.
-            Pass an empty tuple ``()`` for a single linear projection.
-        dropout: Dropout rate applied after each hidden layer in the MLP.
-            Must be in ``[0, 1)``.
-        retrieval_temperature: Temperature for the in-batch InfoNCE loss.
-        learning_rate: Adam optimizer learning rate.
-        weight_decay: L2 regularization coefficient for the Adam optimizer.
-            Helps prevent overfitting on small datasets.
-        batch_size: Mini-batch size for training.
-        epochs: Maximum number of training epochs.
-        eval_top_ks: Top-k values used when computing recall metrics.
-        max_eval_users: Maximum number of users sampled for evaluation.
-        top_k: Default number of recommendations returned by ``predict``.
-        eval_during_training: Whether to compute recall metrics after each epoch.
-        seed: Random seed for reproducibility.
-        device: PyTorch device string (``"cpu"``, ``"cuda"``), or ``None`` to
-            auto-detect.
-
-    Example:
-        ```python
-        from twotower import TwoTower, split_interactions
-
-        train_df, valid_df, test_df = split_interactions(interactions_df)
-
-        model = TwoTower(tower_dims=(128, 64))
-        model.fit(train_df, validation_data=valid_df, epochs=10)
-        recommendations = model.retrieve(user_ids=[1, 2, 3], top_k=10)
-        metrics = model.evaluate(test_df)
-        model.save_model("model.pth")
-        ```
-    """
-
     def __init__(
         self,
         *,
