@@ -28,7 +28,8 @@ class TwoTowerBase(nn.Module):
         return (self.encode_queries(user_input) * self.encode_candidates(item_input)).sum(dim=-1)
 
     def retrieval_logits(self, user_input: torch.Tensor, item_input: torch.Tensor) -> torch.Tensor:
-        assert self.config is not None
+        if self.config is None:
+            raise RuntimeError("Model is not initialized. Call fit() or load_model() first.")
         return torch.matmul(
             self.encode_queries(user_input),
             self.encode_candidates(item_input).T,

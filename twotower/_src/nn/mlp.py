@@ -38,11 +38,12 @@ class MLP(nn.Module):
         self.layers = nn.ModuleList(
             [
                 Perceptron(sizes[i], sizes[i + 1], bias=bias, activation=activation, bn=True, dropout=dropout)
-                for i in range(len(sizes) - 1)
+                for i in range(len(sizes) - 2)
             ]
         )
+        self.output = nn.Linear(sizes[-2], sizes[-1], bias=bias)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         for layer in self.layers:
             x = layer(x)
-        return x
+        return self.output(x)

@@ -24,7 +24,7 @@ def main():
         / 2.0
     )
 
-    model = TwoTower(tower_dims=(256, 128), dropout=0.3)
+    model = TwoTower(tower_dims=(256, 128), dropout=0.1, side_feature_embedding_dim=16, hidden_dim=128)
     history = model.fit(
         train_df,
         validation_data=valid_df,
@@ -36,8 +36,9 @@ def main():
         query_multi_features={"interest_ids": ["interest_1", "interest_2", "interest_3"]},
         candidate_features=["brand", "category", "subcategory", "banner_format", "campaign_goal", "target_gender", "target_age_bucket"],
         observed_ratio=0.8,
-        weight_decay=1e-3,
-        patience=5,
+        learning_rate=2e-4,
+        weight_decay=1e-4,
+        patience=10,
         early_stopping_metric="recall_at_100",
     )
     console.print({"history_tail": history[-3:]})
