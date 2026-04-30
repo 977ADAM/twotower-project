@@ -60,7 +60,7 @@ def main():
         user_feature_config=user_feature_config,
         item_feature_config=item_feature_config,
         observed_ratio=0.8,
-        weight_decay=1e-5,
+        weight_decay=1e-3,
         patience=5,
         early_stopping_metric="recall_at_100",
     )
