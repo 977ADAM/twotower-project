@@ -22,8 +22,8 @@ class StubTrainableModel(nn.Module):
     def __init__(self, config: _Config):
         super().__init__()
         self.config = config
-        self.user_id_to_idx = {1: 0, 2: 1}
-        self.item_id_to_idx = {10: 0, 20: 1, 30: 2}
+        self.query_id_to_idx = {1: 0, 2: 1}
+        self.candidate_id_to_idx = {10: 0, 20: 1, 30: 2}
         self.user_embeddings: nn.Embedding | None = None
         self.item_embeddings: nn.Embedding | None = None
         self.build_tower_calls: list[tuple[int, int]] = []
@@ -35,23 +35,23 @@ class StubTrainableModel(nn.Module):
         self.user_embeddings = nn.Embedding(num_users, 4)
         self.item_embeddings = nn.Embedding(num_items, 4)
 
-    def encode_users(self, user_input: torch.Tensor) -> torch.Tensor:
+    def encode_queries(self, user_input: torch.Tensor) -> torch.Tensor:
         if self.user_embeddings is None:
             raise RuntimeError("Embeddings are not initialized.")
         import torch.nn.functional as F
         return F.normalize(self.user_embeddings(user_input), dim=-1)
 
-    def encode_items(self, item_input: torch.Tensor) -> torch.Tensor:
+    def encode_candidates(self, item_input: torch.Tensor) -> torch.Tensor:
         if self.item_embeddings is None:
             raise RuntimeError("Embeddings are not initialized.")
         import torch.nn.functional as F
         return F.normalize(self.item_embeddings(item_input), dim=-1)
 
     def score_pairs(self, user_input: torch.Tensor, item_input: torch.Tensor) -> torch.Tensor:
-        return (self.encode_users(user_input) * self.encode_items(item_input)).sum(dim=-1)
+        return (self.encode_queries(user_input) * self.encode_candidates(item_input)).sum(dim=-1)
 
     def retrieval_logits(self, user_input: torch.Tensor, item_input: torch.Tensor) -> torch.Tensor:
-        return (self.encode_users(user_input) @ self.encode_items(item_input).T) / self.config.retrieval_temperature
+        return (self.encode_queries(user_input) @ self.encode_candidates(item_input).T) / self.config.retrieval_temperature
 
     def recall_at_k(self, evaluation_df: pd.DataFrame, top_k: int, exclude_seen: bool = True) -> float:
         self.recall_at_k_calls.append((top_k,))
@@ -64,22 +64,22 @@ class StubTrainableModel(nn.Module):
 
 @pytest.fixture
 def interactions_data():
-    positive_df = pd.DataFrame({"user_id": [1, 2], "item_id": [10, 20], "label": [1.0, 1.0]})
+    positive_df = pd.DataFrame({"query_id": [1, 2], "candidate_id": [10, 20], "label": [1.0, 1.0]})
     interactions_df = pd.DataFrame(
-        {"user_id": [1, 1, 2, 2], "item_id": [10, 20, 20, 10], "label": [1.0, 0.0, 1.0, 0.0]}
+        {"query_id": [1, 1, 2, 2], "candidate_id": [10, 20, 20, 10], "label": [1.0, 0.0, 1.0, 0.0]}
     )
-    user_id_to_idx = {1: 0, 2: 1}
-    item_id_to_idx = {10: 0, 20: 1, 30: 2}
-    return positive_df, interactions_df, user_id_to_idx, item_id_to_idx
+    query_id_to_idx = {1: 0, 2: 1}
+    candidate_id_to_idx = {10: 0, 20: 1, 30: 2}
+    return positive_df, interactions_df, query_id_to_idx, candidate_id_to_idx
 
 
 def test_pairwise_dataset_prefers_observed_negatives_when_ratio_is_one(interactions_data):
-    positive_df, interactions_df, user_id_to_idx, item_id_to_idx = interactions_data
+    positive_df, interactions_df, query_id_to_idx, candidate_id_to_idx = interactions_data
     dataset = PairwiseInteractionsDataset(
         positive_df=positive_df.iloc[[0]],
         interactions_df=interactions_df,
-        user_id_to_idx=user_id_to_idx,
-        item_id_to_idx=item_id_to_idx,
+        query_id_to_idx=query_id_to_idx,
+        candidate_id_to_idx=candidate_id_to_idx,
         num_items=3,
         observed_negative_sampling_ratio=1.0,
         seed=7,
@@ -93,12 +93,12 @@ def test_pairwise_dataset_prefers_observed_negatives_when_ratio_is_one(interacti
 
 
 def test_pairwise_dataset_samples_only_non_positive_items_when_sampling_random_negatives(interactions_data):
-    positive_df, interactions_df, user_id_to_idx, item_id_to_idx = interactions_data
+    positive_df, interactions_df, query_id_to_idx, candidate_id_to_idx = interactions_data
     dataset = PairwiseInteractionsDataset(
         positive_df=positive_df.iloc[[0]],
-        interactions_df=interactions_df[interactions_df["user_id"] == 1],
-        user_id_to_idx=user_id_to_idx,
-        item_id_to_idx=item_id_to_idx,
+        interactions_df=interactions_df[interactions_df["query_id"] == 1],
+        query_id_to_idx=query_id_to_idx,
+        candidate_id_to_idx=candidate_id_to_idx,
         num_items=3,
         observed_negative_sampling_ratio=0.0,
         seed=11,
@@ -112,12 +112,12 @@ def test_pairwise_dataset_samples_only_non_positive_items_when_sampling_random_n
 
 
 def test_build_pairwise_loader_returns_expected_training_triples(interactions_data):
-    positive_df, interactions_df, user_id_to_idx, item_id_to_idx = interactions_data
+    positive_df, interactions_df, query_id_to_idx, candidate_id_to_idx = interactions_data
     loader = build_pairwise_loader(
         positive_df=positive_df,
         interactions_df=interactions_df,
-        user_id_to_idx=user_id_to_idx,
-        item_id_to_idx=item_id_to_idx,
+        query_id_to_idx=query_id_to_idx,
+        candidate_id_to_idx=candidate_id_to_idx,
         num_items=3,
         batch_size=2,
         shuffle=False,

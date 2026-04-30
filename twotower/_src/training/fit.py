@@ -100,8 +100,8 @@ class PairwiseInteractionsDataset(Dataset[tuple[torch.Tensor, torch.Tensor, torc
         *,
         positive_df: pd.DataFrame,
         interactions_df: pd.DataFrame,
-        user_id_to_idx: dict[int, int],
-        item_id_to_idx: dict[int, int],
+        query_id_to_idx: dict[int, int],
+        candidate_id_to_idx: dict[int, int],
         num_items: int,
         observed_negative_sampling_ratio: float,
         seed: int,
@@ -110,11 +110,11 @@ class PairwiseInteractionsDataset(Dataset[tuple[torch.Tensor, torch.Tensor, torc
             raise ValueError("`observed_negative_sampling_ratio` must be in [0, 1].")
 
         self.user_tensor = torch.tensor(
-            positive_df["user_id"].map(user_id_to_idx).to_numpy(),
+            positive_df["query_id"].map(query_id_to_idx).to_numpy(),
             dtype=torch.long,
         )
         self.pos_item_tensor = torch.tensor(
-            positive_df["item_id"].map(item_id_to_idx).to_numpy(),
+            positive_df["candidate_id"].map(candidate_id_to_idx).to_numpy(),
             dtype=torch.long,
         )
         self.num_items = int(num_items)
@@ -123,15 +123,15 @@ class PairwiseInteractionsDataset(Dataset[tuple[torch.Tensor, torch.Tensor, torc
         self.observed_negative_items_by_user = self._build_item_pools_by_user(
             interactions_df=interactions_df,
             target_label=0.0,
-            user_id_to_idx=user_id_to_idx,
-            item_id_to_idx=item_id_to_idx,
+            query_id_to_idx=query_id_to_idx,
+            candidate_id_to_idx=candidate_id_to_idx,
             deduplicate=False,
         )
         positive_item_lists = self._build_item_pools_by_user(
             interactions_df=interactions_df,
             target_label=1.0,
-            user_id_to_idx=user_id_to_idx,
-            item_id_to_idx=item_id_to_idx,
+            query_id_to_idx=query_id_to_idx,
+            candidate_id_to_idx=candidate_id_to_idx,
             deduplicate=True,
         )
         self.positive_items_by_user = {
@@ -172,24 +172,24 @@ class PairwiseInteractionsDataset(Dataset[tuple[torch.Tensor, torch.Tensor, torc
         *,
         interactions_df: pd.DataFrame,
         target_label: float,
-        user_id_to_idx: dict[int, int],
-        item_id_to_idx: dict[int, int],
+        query_id_to_idx: dict[int, int],
+        candidate_id_to_idx: dict[int, int],
         deduplicate: bool,
     ) -> dict[int, list[int]]:
         filtered_df = interactions_df[interactions_df["label"] == target_label]
         pools: dict[int, list[int]] = {}
-        for user_id, item_series in filtered_df.groupby("user_id")["item_id"]:
-            if int(user_id) not in user_id_to_idx:
+        for query_id, item_series in filtered_df.groupby("query_id")["candidate_id"]:
+            if int(query_id) not in query_id_to_idx:
                 continue
 
             mapped_items = [
-                int(item_id_to_idx[int(item_id)])
-                for item_id in item_series.astype(int).tolist()
-                if int(item_id) in item_id_to_idx
+                int(candidate_id_to_idx[int(candidate_id)])
+                for candidate_id in item_series.astype(int).tolist()
+                if int(candidate_id) in candidate_id_to_idx
             ]
             if deduplicate:
                 mapped_items = list(dict.fromkeys(mapped_items))
-            pools[int(user_id_to_idx[int(user_id)])] = mapped_items
+            pools[int(query_id_to_idx[int(query_id)])] = mapped_items
         return pools
 
 
@@ -197,8 +197,8 @@ def build_pairwise_loader(
     *,
     positive_df: pd.DataFrame,
     interactions_df: pd.DataFrame,
-    user_id_to_idx: dict[int, int],
-    item_id_to_idx: dict[int, int],
+    query_id_to_idx: dict[int, int],
+    candidate_id_to_idx: dict[int, int],
     num_items: int,
     batch_size: int,
     shuffle: bool,
@@ -209,8 +209,8 @@ def build_pairwise_loader(
     dataset = PairwiseInteractionsDataset(
         positive_df=positive_df,
         interactions_df=interactions_df,
-        user_id_to_idx=user_id_to_idx,
-        item_id_to_idx=item_id_to_idx,
+        query_id_to_idx=query_id_to_idx,
+        candidate_id_to_idx=candidate_id_to_idx,
         num_items=num_items,
         observed_negative_sampling_ratio=observed_negative_sampling_ratio,
         seed=seed,
@@ -222,8 +222,8 @@ class _Trainable(Protocol):
     """Minimal model contract required by the training module."""
 
     config: _Config
-    user_id_to_idx: dict[int, int]
-    item_id_to_idx: dict[int, int]
+    query_id_to_idx: dict[int, int]
+    candidate_id_to_idx: dict[int, int]
 
     def build_towers(self, num_users: int, num_items: int) -> None:
         ...
@@ -246,10 +246,10 @@ class _Trainable(Protocol):
     def eval(self) -> object:
         ...
 
-    def encode_users(self, user_input: torch.Tensor) -> torch.Tensor:
+    def encode_queries(self, user_input: torch.Tensor) -> torch.Tensor:
         ...
 
-    def encode_items(self, item_input: torch.Tensor) -> torch.Tensor:
+    def encode_candidates(self, item_input: torch.Tensor) -> torch.Tensor:
         ...
 
     def score_pairs(
@@ -379,8 +379,8 @@ class TwoTowerTrainer:
         return build_pairwise_loader(
             positive_df=inputs.train_positive_df,
             interactions_df=inputs.train_interactions_df,
-            user_id_to_idx=model.user_id_to_idx,
-            item_id_to_idx=model.item_id_to_idx,
+            query_id_to_idx=model.query_id_to_idx,
+            candidate_id_to_idx=model.candidate_id_to_idx,
             num_items=inputs.num_items,
             batch_size=self.config.batch_size,
             shuffle=True,
@@ -400,8 +400,8 @@ class TwoTowerTrainer:
         return build_pairwise_loader(
             positive_df=inputs.valid_positive_df,
             interactions_df=inputs.valid_interactions_df,
-            user_id_to_idx=model.user_id_to_idx,
-            item_id_to_idx=model.item_id_to_idx,
+            query_id_to_idx=model.query_id_to_idx,
+            candidate_id_to_idx=model.candidate_id_to_idx,
             num_items=inputs.num_items,
             batch_size=self.config.batch_size,
             shuffle=False,

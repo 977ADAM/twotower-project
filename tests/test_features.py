@@ -14,7 +14,7 @@ from twotower._src.data.features import (
 @pytest.fixture
 def entity_df():
     return pd.DataFrame({
-        "item_id": [10, 20, 30],
+        "candidate_id": [10, 20, 30],
         "category": ["sports", "tech", "sports"],
         "tag_1": ["a", "b", "a"],
         "tag_2": ["x", "y", "z"],
@@ -23,7 +23,7 @@ def entity_df():
 
 def test_build_feature_tables_encodes_scalar_feature(entity_df):
     config = FeatureConfig(scalar_features=("category",))
-    tables = build_feature_tables(entity_df, entity_ids=[10, 20, 30], config=config, id_column="item_id")
+    tables = build_feature_tables(entity_df, entity_ids=[10, 20, 30], config=config, id_column="candidate_id")
 
     assert "category" in tables.scalar_features
     encoded = tables.scalar_features["category"]
@@ -35,7 +35,7 @@ def test_build_feature_tables_encodes_scalar_feature(entity_df):
 
 def test_build_feature_tables_encodes_multi_feature(entity_df):
     config = FeatureConfig(multi_features=(MultiFeatureSpec("tags", columns=("tag_1", "tag_2")),))
-    tables = build_feature_tables(entity_df, entity_ids=[10, 20, 30], config=config, id_column="item_id")
+    tables = build_feature_tables(entity_df, entity_ids=[10, 20, 30], config=config, id_column="candidate_id")
 
     assert "tags" in tables.multi_features
     encoded = tables.multi_features["tags"]
@@ -47,7 +47,7 @@ def test_build_feature_tables_metadata_has_correct_vocab_sizes(entity_df):
         scalar_features=("category",),
         multi_features=(MultiFeatureSpec("tags", columns=("tag_1", "tag_2")),),
     )
-    tables = build_feature_tables(entity_df, entity_ids=[10, 20, 30], config=config, id_column="item_id")
+    tables = build_feature_tables(entity_df, entity_ids=[10, 20, 30], config=config, id_column="candidate_id")
 
     # "category" vocab: __unk__ + sports + tech = 3
     assert tables.metadata.vocab_sizes["category"] == 3
@@ -57,18 +57,18 @@ def test_build_feature_tables_metadata_has_correct_vocab_sizes(entity_df):
 
 
 def test_build_feature_tables_unknown_token_for_missing_entity():
-    df = pd.DataFrame({"item_id": [10], "category": ["sports"]})
+    df = pd.DataFrame({"candidate_id": [10], "category": ["sports"]})
     config = FeatureConfig(scalar_features=("category",))
     # entity_id=99 is not in df → should get unknown token (index 0)
-    tables = build_feature_tables(df, entity_ids=[10, 99], config=config, id_column="item_id")
+    tables = build_feature_tables(df, entity_ids=[10, 99], config=config, id_column="candidate_id")
     assert tables.scalar_features["category"][1].item() == 0
 
 
 def test_build_feature_tables_raises_for_missing_column():
-    df = pd.DataFrame({"item_id": [10]})
+    df = pd.DataFrame({"candidate_id": [10]})
     config = FeatureConfig(scalar_features=("category",))
     with pytest.raises(ValueError, match="category"):
-        build_feature_tables(df, entity_ids=[10], config=config, id_column="item_id")
+        build_feature_tables(df, entity_ids=[10], config=config, id_column="candidate_id")
 
 
 def test_feature_metadata_round_trip():

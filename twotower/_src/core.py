@@ -49,38 +49,38 @@ class TwoTower(TwoTowerBase):
     def __init__(
         self,
         *,
-        user_embedding_dim: int = 64,
-        item_embedding_dim: int = 64,
+        query_embedding_dim: int = 64,
+        candidate_embedding_dim: int = 64,
         side_feature_embedding_dim: int = 8,
         hidden_dim: int = 64,
         tower_dims: tuple[int, ...] = (128, 64),
         dropout: float = 0.0,
     ):
         super().__init__()
-        self.user_embedding_dim = user_embedding_dim
-        self.item_embedding_dim = item_embedding_dim
+        self.query_embedding_dim = query_embedding_dim
+        self.candidate_embedding_dim = candidate_embedding_dim
         self.side_feature_embedding_dim = side_feature_embedding_dim
         self.hidden_dim = hidden_dim
         self.tower_dims = tower_dims
         self.dropout = dropout
-        self.user_col: str = "user_id"
-        self.item_col: str = "item_id"
+        self.query_col: str = "query_id"
+        self.candidate_col: str = "candidate_id"
         self.device: torch.device = torch.device("cpu")
-        self.user_id_to_idx: dict[int, int] = {}
-        self.item_id_to_idx: dict[int, int] = {}
-        self.idx_to_user_id: list[int] = []
-        self.idx_to_item_id: list[int] = []
+        self.query_id_to_idx: dict[int, int] = {}
+        self.candidate_id_to_idx: dict[int, int] = {}
+        self.idx_to_query_id: list[int] = []
+        self.idx_to_candidate_id: list[int] = []
         self.train_history: list[dict[str, float]] = []
         self.train_df: pd.DataFrame | None = None
         self.valid_df: pd.DataFrame | None = None
-        self._seen_items_by_user: dict[int, set[int]] = {}
-        self._train_positive_item_ids_by_popularity: list[int] = []
+        self._seen_candidates_by_query: dict[int, set[int]] = {}
+        self._train_positive_candidate_ids_by_popularity: list[int] = []
         self._cached_all_item_embeddings: torch.Tensor | None = None
         self._cached_all_item_ids: list[int] | None = None
-        self._user_feature_tables: FeatureTables | None = None
-        self._item_feature_tables: FeatureTables | None = None
-        self._user_feature_metadata: FeatureMetadata = FeatureMetadata.empty()
-        self._item_feature_metadata: FeatureMetadata = FeatureMetadata.empty()
+        self._query_feature_tables: FeatureTables | None = None
+        self._candidate_feature_tables: FeatureTables | None = None
+        self._query_feature_metadata: FeatureMetadata = FeatureMetadata.empty()
+        self._candidate_feature_metadata: FeatureMetadata = FeatureMetadata.empty()
         self._negative_sampling: NegativeSampling = NegativeSampling()
         self._evaluator = TwoTowerEvaluator()
         self._predictor = TwoTowerPredictor()
@@ -93,12 +93,12 @@ class TwoTower(TwoTowerBase):
         train_df: pd.DataFrame,
         *,
         validation_data: pd.DataFrame | None = None,
-        user_col: str = "user_id",
-        item_col: str = "item_id",
-        users_df: pd.DataFrame | None = None,
-        items_df: pd.DataFrame | None = None,
-        user_feature_config: FeatureConfig | None = None,
-        item_feature_config: FeatureConfig | None = None,
+        query_col: str = "query_id",
+        candidate_col: str = "candidate_id",
+        queries_df: pd.DataFrame | None = None,
+        candidates_df: pd.DataFrame | None = None,
+        query_feature_config: FeatureConfig | None = None,
+        candidate_feature_config: FeatureConfig | None = None,
         observed_ratio: float = 0.8,
         in_batch_loss_weight: float = 0.0,
         learning_rate: float = 1e-3,
@@ -117,13 +117,13 @@ class TwoTower(TwoTowerBase):
         min_delta: float = 1e-4,
     ) -> list[dict[str, float]]:
         """Fit the model on interaction pairs."""
-        self.user_col = user_col
-        self.item_col = item_col
+        self.query_col = query_col
+        self.candidate_col = candidate_col
         self.device = self.resolve_device(device)
         negative_sampling = NegativeSampling(observed_ratio=observed_ratio, in_batch_loss_weight=in_batch_loss_weight)
         self.config = _Config(
-            user_embedding_dim=self.user_embedding_dim,
-            item_embedding_dim=self.item_embedding_dim,
+            query_embedding_dim=self.query_embedding_dim,
+            candidate_embedding_dim=self.candidate_embedding_dim,
             side_feature_embedding_dim=self.side_feature_embedding_dim,
             hidden_dim=self.hidden_dim,
             tower_dims=self.tower_dims,
@@ -161,10 +161,10 @@ class TwoTower(TwoTowerBase):
         self.valid_df = reference_valid_df
         self._refresh_evaluation_reference_data()
         self._prepare_side_feature_tables(
-            users_df=users_df,
-            items_df=items_df,
-            user_feature_config=user_feature_config,
-            item_feature_config=item_feature_config,
+            queries_df=queries_df,
+            candidates_df=candidates_df,
+            query_feature_config=query_feature_config,
+            candidate_feature_config=candidate_feature_config,
         )
         self._negative_sampling = negative_sampling
 
@@ -173,8 +173,8 @@ class TwoTower(TwoTowerBase):
         fit_inputs = FitInputs(
             train_positive_df=prepared_train_df,
             train_interactions_df=reference_train_df,
-            num_users=len(self.idx_to_user_id),
-            num_items=len(self.idx_to_item_id),
+            num_users=len(self.idx_to_query_id),
+            num_items=len(self.idx_to_candidate_id),
             valid_positive_df=prepared_valid_df,
             valid_interactions_df=reference_valid_df,
         )
@@ -214,7 +214,7 @@ class TwoTower(TwoTowerBase):
                 If ``False``, they are silently skipped.
 
         Returns:
-            DataFrame with columns [user_col, item_col, "score", "rank"],
+            DataFrame with columns [query_col, candidate_col, "score", "rank"],
             sorted by user and rank.
         """
         self.ensure_fitted()
@@ -267,7 +267,7 @@ class TwoTower(TwoTowerBase):
         if not isinstance(checkpoint, dict):
             raise ValueError(f"Invalid checkpoint format in {checkpoint_path}: expected a dictionary.")
 
-        required_keys = {"config", "state_dict", "user_id_to_idx", "item_id_to_idx", "idx_to_user_id", "idx_to_item_id"}
+        required_keys = {"config", "state_dict", "query_id_to_idx", "candidate_id_to_idx", "idx_to_query_id", "idx_to_candidate_id"}
         missing_keys = required_keys.difference(checkpoint)
         if missing_keys:
             raise ValueError(
@@ -276,35 +276,35 @@ class TwoTower(TwoTowerBase):
 
     def apply_loaded_checkpoint_state(self, state: LoadedCheckpointState) -> None:
         self.config = state.config
-        self.user_embedding_dim = state.config.user_embedding_dim
-        self.item_embedding_dim = state.config.item_embedding_dim
+        self.query_embedding_dim = state.config.query_embedding_dim
+        self.candidate_embedding_dim = state.config.candidate_embedding_dim
         self.side_feature_embedding_dim = state.config.side_feature_embedding_dim
         self.hidden_dim = state.config.hidden_dim
         self.tower_dims = state.config.tower_dims
         self.dropout = state.config.dropout
-        self.user_col = state.user_col
-        self.item_col = state.item_col
+        self.query_col = state.query_col
+        self.candidate_col = state.candidate_col
         self.device = state.device
-        self.user_id_to_idx = state.user_id_to_idx
-        self.item_id_to_idx = state.item_id_to_idx
-        self.idx_to_user_id = state.idx_to_user_id
-        self.idx_to_item_id = state.idx_to_item_id
+        self.query_id_to_idx = state.query_id_to_idx
+        self.candidate_id_to_idx = state.candidate_id_to_idx
+        self.idx_to_query_id = state.idx_to_query_id
+        self.idx_to_candidate_id = state.idx_to_candidate_id
         self.train_history = state.train_history
         self.train_df = None
         self.valid_df = None
-        self._seen_items_by_user = state.seen_items_by_user
-        self._train_positive_item_ids_by_popularity = state.train_positive_item_ids_by_popularity
-        self._user_feature_tables = None
-        self._item_feature_tables = None
-        self._user_feature_metadata = state.user_feature_metadata
-        self._item_feature_metadata = state.item_feature_metadata
+        self._seen_candidates_by_query = state.seen_candidates_by_query
+        self._train_positive_candidate_ids_by_popularity = state.train_positive_candidate_ids_by_popularity
+        self._query_feature_tables = None
+        self._candidate_feature_tables = None
+        self._query_feature_metadata = state.query_feature_metadata
+        self._candidate_feature_metadata = state.candidate_feature_metadata
 
     def build_evaluate_inputs(self, X_test: pd.DataFrame) -> EvaluateInputs:
-        test_input_df = prepare_evaluation_inputs(X_test, self.user_col, self.item_col)
+        test_input_df = prepare_evaluation_inputs(X_test, self.query_col, self.candidate_col)
         prepared_test_df = normalize_and_filter_interactions(
             test_input_df,
-            user_id_to_idx=self.user_id_to_idx,
-            item_id_to_idx=self.item_id_to_idx,
+            query_id_to_idx=self.query_id_to_idx,
+            candidate_id_to_idx=self.candidate_id_to_idx,
             config=self.config,
         )
         positive_test_df = (
@@ -312,8 +312,8 @@ class TwoTower(TwoTowerBase):
             if prepared_test_df.empty
             else prepare_retrieval_pairs(
                 prepared_test_df,
-                user_id_to_idx=self.user_id_to_idx,
-                item_id_to_idx=self.item_id_to_idx,
+                query_id_to_idx=self.query_id_to_idx,
+                candidate_id_to_idx=self.candidate_id_to_idx,
                 config=self.config,
                 split_name="test",
             )
@@ -323,8 +323,8 @@ class TwoTower(TwoTowerBase):
             prepared_test_df=prepared_test_df,
             positive_test_df=positive_test_df,
             input_row_count=len(test_input_df),
-            unknown_user_row_count=int((~test_input_df["user_id"].isin(self.user_id_to_idx)).sum()),
-            unknown_item_row_count=int((~test_input_df["item_id"].isin(self.item_id_to_idx)).sum()),
+            unknown_user_row_count=int((~test_input_df["query_id"].isin(self.query_id_to_idx)).sum()),
+            unknown_item_row_count=int((~test_input_df["candidate_id"].isin(self.candidate_id_to_idx)).sum()),
         )
 
     def make_loader(
@@ -337,9 +337,9 @@ class TwoTower(TwoTowerBase):
         return build_pairwise_loader(
             positive_df=positive_df,
             interactions_df=interactions_df,
-            user_id_to_idx=self.user_id_to_idx,
-            item_id_to_idx=self.item_id_to_idx,
-            num_items=len(self.idx_to_item_id),
+            query_id_to_idx=self.query_id_to_idx,
+            candidate_id_to_idx=self.candidate_id_to_idx,
+            num_items=len(self.idx_to_candidate_id),
             batch_size=self.config.batch_size,
             shuffle=shuffle,
             observed_negative_sampling_ratio=self._negative_sampling.observed_ratio,
@@ -390,7 +390,7 @@ class TwoTower(TwoTowerBase):
         if positive_df.empty:
             return []
         return list(
-            positive_df["user_id"]
+            positive_df["query_id"]
             .drop_duplicates()
             .head(self.config.max_eval_users)
             .astype(int)
@@ -403,17 +403,17 @@ class TwoTower(TwoTowerBase):
 
         positive_df = evaluation_df[evaluation_df["label"] == 1.0]
         recalls = []
-        seen_items_by_user = self.get_seen_items_by_user() if exclude_seen else {}
-        item_embeddings, item_ids = self.get_candidate_item_embeddings(list(self.idx_to_item_id))
-        for user_id in candidate_user_ids:
-            actual_items = set(positive_df.loc[positive_df["user_id"] == user_id, "item_id"].astype(int))
+        seen_candidates_by_query = self.get_seen_candidates_by_query() if exclude_seen else {}
+        item_embeddings, item_ids = self.get_candidate_item_embeddings(list(self.idx_to_candidate_id))
+        for query_id in candidate_user_ids:
+            actual_items = set(positive_df.loc[positive_df["query_id"] == query_id, "candidate_id"].astype(int))
             predicted_items = self._predictor.predict_top_k_item_ids_for_user(
                 self,
-                user_id=user_id,
+                query_id=query_id,
                 item_embeddings=item_embeddings,
                 item_ids=item_ids,
                 top_k=top_k,
-                excluded_item_ids=seen_items_by_user.get(user_id, set()),
+                excluded_item_ids=seen_candidates_by_query.get(query_id, set()),
             )
             if actual_items:
                 recalls.append(user_recall(actual_items, predicted_items))
@@ -431,18 +431,18 @@ class TwoTower(TwoTowerBase):
 
         positive_df = evaluation_df[evaluation_df["label"] == 1.0]
         recalls = []
-        seen_items_by_user = self.get_seen_items_by_user()
-        for user_id in candidate_user_ids:
-            actual_items = set(positive_df.loc[positive_df["user_id"] == user_id, "item_id"].astype(int))
+        seen_candidates_by_query = self.get_seen_candidates_by_query()
+        for query_id in candidate_user_ids:
+            actual_items = set(positive_df.loc[positive_df["query_id"] == query_id, "candidate_id"].astype(int))
             if not actual_items:
                 continue
 
-            excluded_item_ids = seen_items_by_user.get(user_id, set())
+            excluded_item_ids = seen_candidates_by_query.get(query_id, set())
             predicted_items: list[int] = []
-            for item_id in popularity_ranking:
-                if item_id in excluded_item_ids:
+            for candidate_id in popularity_ranking:
+                if candidate_id in excluded_item_ids:
                     continue
-                predicted_items.append(item_id)
+                predicted_items.append(candidate_id)
                 if len(predicted_items) == top_k:
                     break
 
@@ -451,36 +451,36 @@ class TwoTower(TwoTowerBase):
         return mean_recall(recalls)
 
     def build_towers(self, num_users: int, num_items: int) -> None:
-        self.user_tower = Tower(
+        self.query_tower = Tower(
             num_users,
-            self.config.user_embedding_dim,
+            self.config.query_embedding_dim,
             self.config,
-            feature_tables=self._user_feature_tables,
-            feature_metadata=self._user_feature_metadata,
+            feature_tables=self._query_feature_tables,
+            feature_metadata=self._query_feature_metadata,
         )
-        self.item_tower = Tower(
+        self.candidate_tower = Tower(
             num_items,
-            self.config.item_embedding_dim,
+            self.config.candidate_embedding_dim,
             self.config,
-            feature_tables=self._item_feature_tables,
-            feature_metadata=self._item_feature_metadata,
+            feature_tables=self._candidate_feature_tables,
+            feature_metadata=self._candidate_feature_metadata,
         )
 
     def ensure_fitted(self) -> None:
-        if self.user_tower is None or self.item_tower is None:
+        if self.query_tower is None or self.candidate_tower is None:
             raise RuntimeError("Model is not fitted yet.")
 
-    def get_seen_items_by_user(self) -> dict[int, set[int]]:
-        if self._seen_items_by_user:
-            return self._seen_items_by_user
+    def get_seen_candidates_by_query(self) -> dict[int, set[int]]:
+        if self._seen_candidates_by_query:
+            return self._seen_candidates_by_query
         self._refresh_evaluation_reference_data()
-        return self._seen_items_by_user
+        return self._seen_candidates_by_query
 
     def get_train_positive_item_ranking(self) -> list[int]:
-        if self._train_positive_item_ids_by_popularity:
-            return self._train_positive_item_ids_by_popularity
+        if self._train_positive_candidate_ids_by_popularity:
+            return self._train_positive_candidate_ids_by_popularity
         self._refresh_evaluation_reference_data()
-        return self._train_positive_item_ids_by_popularity
+        return self._train_positive_candidate_ids_by_popularity
 
     def get_candidate_item_embeddings(
         self,
@@ -491,33 +491,33 @@ class TwoTower(TwoTowerBase):
             return all_item_embeddings, all_item_ids
 
         candidate_positions = [
-            self.item_id_to_idx[item_id]
-            for item_id in item_ids
-            if item_id in self.item_id_to_idx
+            self.candidate_id_to_idx[candidate_id]
+            for candidate_id in item_ids
+            if candidate_id in self.candidate_id_to_idx
         ]
         if not candidate_positions:
             return all_item_embeddings[:0], []
 
         return all_item_embeddings[candidate_positions], item_ids
 
-    def get_user_embedding(self, user_id: int) -> torch.Tensor:
-        if user_id not in self.user_id_to_idx:
-            raise KeyError(f"Unknown user_id: {user_id}")
+    def get_user_embedding(self, query_id: int) -> torch.Tensor:
+        if query_id not in self.query_id_to_idx:
+            raise KeyError(f"Unknown query_id: {query_id}")
 
         user_index = torch.tensor(
-            [self.user_id_to_idx[user_id]],
+            [self.query_id_to_idx[query_id]],
             dtype=torch.long,
             device=self.device,
         )
         with torch.no_grad():
-            user_embedding: torch.Tensor = self.encode_users(user_index)
+            user_embedding: torch.Tensor = self.encode_queries(user_index)
         return user_embedding.squeeze(0)
 
-    def get_user_feature_metadata_dict(self) -> dict[str, object]:
-        return self._user_feature_metadata.to_dict()
+    def get_query_feature_metadata_dict(self) -> dict[str, object]:
+        return self._query_feature_metadata.to_dict()
 
-    def get_item_feature_metadata_dict(self) -> dict[str, object]:
-        return self._item_feature_metadata.to_dict()
+    def get_candidate_feature_metadata_dict(self) -> dict[str, object]:
+        return self._candidate_feature_metadata.to_dict()
 
     def invalidate_item_embedding_cache(self) -> None:
         self._cached_all_item_embeddings = None
@@ -538,26 +538,26 @@ class TwoTower(TwoTowerBase):
         *,
         train_df: pd.DataFrame,
     ) -> tuple[pd.DataFrame, pd.DataFrame]:
-        train_df = normalize_fit_interactions(train_df, split_name="train", user_col=self.user_col, item_col=self.item_col)
+        train_df = normalize_fit_interactions(train_df, split_name="train", query_col=self.query_col, candidate_col=self.candidate_col)
 
         mappings = build_id_mappings(train_df)
-        self.user_id_to_idx = mappings.user_id_to_idx
-        self.item_id_to_idx = mappings.item_id_to_idx
-        self.idx_to_user_id = mappings.idx_to_user_id
-        self.idx_to_item_id = mappings.idx_to_item_id
+        self.query_id_to_idx = mappings.query_id_to_idx
+        self.candidate_id_to_idx = mappings.candidate_id_to_idx
+        self.idx_to_query_id = mappings.idx_to_query_id
+        self.idx_to_candidate_id = mappings.idx_to_candidate_id
 
         assert self.config is not None
         prepared_train_df = prepare_retrieval_pairs(
             train_df,
-            user_id_to_idx=self.user_id_to_idx,
-            item_id_to_idx=self.item_id_to_idx,
+            query_id_to_idx=self.query_id_to_idx,
+            candidate_id_to_idx=self.candidate_id_to_idx,
             config=self.config,
             split_name="train",
         )
         reference_train_df = filter_and_sample_interactions(
             train_df,
-            user_id_to_idx=self.user_id_to_idx,
-            item_id_to_idx=self.item_id_to_idx,
+            query_id_to_idx=self.query_id_to_idx,
+            candidate_id_to_idx=self.candidate_id_to_idx,
             config=self.config,
         )
         return prepared_train_df, reference_train_df
@@ -568,18 +568,18 @@ class TwoTower(TwoTowerBase):
         valid_df: pd.DataFrame,
     ) -> tuple[pd.DataFrame, pd.DataFrame]:
         assert self.config is not None
-        valid_df = normalize_fit_interactions(valid_df, split_name="valid", user_col=self.user_col, item_col=self.item_col)
+        valid_df = normalize_fit_interactions(valid_df, split_name="valid", query_col=self.query_col, candidate_col=self.candidate_col)
         prepared_valid_df = prepare_retrieval_pairs(
             valid_df,
-            user_id_to_idx=self.user_id_to_idx,
-            item_id_to_idx=self.item_id_to_idx,
+            query_id_to_idx=self.query_id_to_idx,
+            candidate_id_to_idx=self.candidate_id_to_idx,
             config=self.config,
             split_name="valid",
         )
         reference_valid_df = filter_and_sample_interactions(
             valid_df,
-            user_id_to_idx=self.user_id_to_idx,
-            item_id_to_idx=self.item_id_to_idx,
+            query_id_to_idx=self.query_id_to_idx,
+            candidate_id_to_idx=self.candidate_id_to_idx,
             config=self.config,
         )
         return prepared_valid_df, reference_valid_df
@@ -587,58 +587,58 @@ class TwoTower(TwoTowerBase):
     def _prepare_side_feature_tables(
         self,
         *,
-        users_df: pd.DataFrame | None,
-        items_df: pd.DataFrame | None,
-        user_feature_config: FeatureConfig | None,
-        item_feature_config: FeatureConfig | None,
+        queries_df: pd.DataFrame | None,
+        candidates_df: pd.DataFrame | None,
+        query_feature_config: FeatureConfig | None,
+        candidate_feature_config: FeatureConfig | None,
     ) -> None:
-        if users_df is None and items_df is None:
-            self._user_feature_tables = None
-            self._item_feature_tables = None
-            self._user_feature_metadata = FeatureMetadata.empty()
-            self._item_feature_metadata = FeatureMetadata.empty()
+        if queries_df is None and candidates_df is None:
+            self._query_feature_tables = None
+            self._candidate_feature_tables = None
+            self._query_feature_metadata = FeatureMetadata.empty()
+            self._candidate_feature_metadata = FeatureMetadata.empty()
             return
 
-        if users_df is None or items_df is None:
-            raise ValueError("`users_df` and `items_df` must be provided together when using side features.")
+        if queries_df is None or candidates_df is None:
+            raise ValueError("`queries_df` and `candidates_df` must be provided together when using side features.")
 
-        if user_feature_config is None or item_feature_config is None:
+        if query_feature_config is None or candidate_feature_config is None:
             raise ValueError(
-                "`user_feature_config` and `item_feature_config` must be provided"
-                " together with `users_df` and `items_df`."
+                "`query_feature_config` and `candidate_feature_config` must be provided"
+                " together with `queries_df` and `candidates_df`."
             )
 
-        self._user_feature_tables = build_feature_tables(
-            df=users_df,
-            entity_ids=self.idx_to_user_id,
-            config=user_feature_config,
-            id_column=self.user_col,
+        self._query_feature_tables = build_feature_tables(
+            df=queries_df,
+            entity_ids=self.idx_to_query_id,
+            config=query_feature_config,
+            id_column=self.query_col,
         )
-        self._item_feature_tables = build_feature_tables(
-            df=items_df,
-            entity_ids=self.idx_to_item_id,
-            config=item_feature_config,
-            id_column=self.item_col,
+        self._candidate_feature_tables = build_feature_tables(
+            df=candidates_df,
+            entity_ids=self.idx_to_candidate_id,
+            config=candidate_feature_config,
+            id_column=self.candidate_col,
         )
-        self._user_feature_metadata = self._user_feature_tables.metadata
-        self._item_feature_metadata = self._item_feature_tables.metadata
+        self._query_feature_metadata = self._query_feature_tables.metadata
+        self._candidate_feature_metadata = self._candidate_feature_tables.metadata
 
     def _refresh_evaluation_reference_data(self) -> None:
         seen, popularity = build_evaluation_reference_data(self.train_df, None)
-        self._seen_items_by_user = seen
-        self._train_positive_item_ids_by_popularity = popularity
+        self._seen_candidates_by_query = seen
+        self._train_positive_candidate_ids_by_popularity = popularity
 
     def _build_candidate_item_embeddings(self) -> tuple[torch.Tensor, list[int]]:
         if self._cached_all_item_embeddings is None or self._cached_all_item_ids is None:
-            item_ids = list(self.idx_to_item_id)
+            item_ids = list(self.idx_to_candidate_id)
             item_indices = torch.tensor(
-                [self.item_id_to_idx[item_id] for item_id in item_ids],
+                [self.candidate_id_to_idx[candidate_id] for candidate_id in item_ids],
                 dtype=torch.long,
                 device=self.device,
             )
-            assert self.item_tower is not None
+            assert self.candidate_tower is not None
             with torch.no_grad():
-                item_embeddings = self.item_tower(item_indices)
+                item_embeddings = self.candidate_tower(item_indices)
                 item_embeddings = F.normalize(item_embeddings, dim=-1)
             self._cached_all_item_embeddings = item_embeddings
             self._cached_all_item_ids = item_ids

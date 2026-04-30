@@ -10,21 +10,21 @@ console = Console()
 
 def main():
     config = Config()
-    users_df, items_df, train_df, valid_df, test_df = load_training_frames(config)
+    queries_df, candidates_df, train_df, valid_df, test_df = load_training_frames(config)
 
-    users_df = users_df.copy()
-    users_df["age_bucket"] = bucketize_age(users_df["age"])
+    queries_df = queries_df.copy()
+    queries_df["age_bucket"] = bucketize_age(queries_df["age"])
 
-    items_df = items_df.copy()
-    items_df["target_age_bucket"] = bucketize_age(
+    candidates_df = candidates_df.copy()
+    candidates_df["target_age_bucket"] = bucketize_age(
         (
-            pd.to_numeric(items_df["target_age_min"], errors="coerce")
-            + pd.to_numeric(items_df["target_age_max"], errors="coerce")
+            pd.to_numeric(candidates_df["target_age_min"], errors="coerce")
+            + pd.to_numeric(candidates_df["target_age_max"], errors="coerce")
         )
         / 2.0
     )
 
-    user_feature_config = FeatureConfig(
+    query_feature_config = FeatureConfig(
         scalar_features=(
             "age_bucket",
             "gender",
@@ -39,7 +39,7 @@ def main():
             MultiFeatureSpec("interest_ids", columns=("interest_1", "interest_2", "interest_3")),
         ),
     )
-    item_feature_config = FeatureConfig(
+    candidate_feature_config = FeatureConfig(
         scalar_features=(
             "brand",
             "category",
@@ -55,10 +55,10 @@ def main():
     history = model.fit(
         train_df,
         validation_data=valid_df,
-        users_df=users_df,
-        items_df=items_df,
-        user_feature_config=user_feature_config,
-        item_feature_config=item_feature_config,
+        queries_df=queries_df,
+        candidates_df=candidates_df,
+        query_feature_config=query_feature_config,
+        candidate_feature_config=candidate_feature_config,
         observed_ratio=0.8,
         weight_decay=1e-3,
         patience=5,
@@ -69,7 +69,7 @@ def main():
     metrics = model.evaluate(test_df, top_k=config.top_k)
     console.print({"metrics": metrics})
 
-    sample_users = model.idx_to_user_id[: min(config.sample_user_count, len(model.idx_to_user_id))]
+    sample_users = model.idx_to_query_id[: min(config.sample_user_count, len(model.idx_to_query_id))]
     predictions = model.retrieve(
         user_ids=sample_users,
         top_k=config.sample_prediction_top_k,

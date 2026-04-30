@@ -3,8 +3,8 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class _Config:
-    user_embedding_dim: int = 64
-    item_embedding_dim: int = 64
+    query_embedding_dim: int = 64
+    candidate_embedding_dim: int = 64
     side_feature_embedding_dim: int = 8
     hidden_dim: int = 64
     tower_dims: tuple[int, ...] = (128, 64)
@@ -22,10 +22,10 @@ class _Config:
     device: str | None = "cpu"
 
     def __post_init__(self) -> None:
-        if self.user_embedding_dim <= 0:
-            raise ValueError(f"`user_embedding_dim` must be positive, got {self.user_embedding_dim}.")
-        if self.item_embedding_dim <= 0:
-            raise ValueError(f"`item_embedding_dim` must be positive, got {self.item_embedding_dim}.")
+        if self.query_embedding_dim <= 0:
+            raise ValueError(f"`query_embedding_dim` must be positive, got {self.query_embedding_dim}.")
+        if self.candidate_embedding_dim <= 0:
+            raise ValueError(f"`candidate_embedding_dim` must be positive, got {self.candidate_embedding_dim}.")
         if self.side_feature_embedding_dim <= 0:
             raise ValueError(f"`side_feature_embedding_dim` must be positive, got {self.side_feature_embedding_dim}.")
         if self.hidden_dim <= 0:

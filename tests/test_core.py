@@ -17,7 +17,7 @@ def small_interactions():
     ] + [
         (u, i, 0.0) for u in range(1, 6) for i in range(6, 11)
     ]
-    df = pd.DataFrame(rows, columns=["user_id", "item_id", "label"])
+    df = pd.DataFrame(rows, columns=["query_id", "candidate_id", "label"])
     train = df.copy()
     valid = df.copy()
     test = df.copy()
@@ -43,8 +43,8 @@ def test_fit_returns_history_with_train_and_valid_loss(fitted_model):
 
 
 def test_fit_populates_id_mappings(fitted_model):
-    assert len(fitted_model.idx_to_user_id) == 5
-    assert len(fitted_model.idx_to_item_id) == 10
+    assert len(fitted_model.idx_to_query_id) == 5
+    assert len(fitted_model.idx_to_candidate_id) == 10
 
 
 def test_fit_with_early_stopping_can_halt_early(small_interactions):
@@ -59,15 +59,15 @@ def test_fit_with_early_stopping_can_halt_early(small_interactions):
 
 def test_retrieve_returns_top_k_items_per_user(fitted_model):
     df = fitted_model.retrieve(user_ids=[1, 2], top_k=3, exclude_seen=False)
-    assert set(df["user_id"].unique()) == {1, 2}
-    assert list(df.columns) == ["user_id", "item_id", "score", "rank"]
-    assert (df.groupby("user_id")["rank"].count() == 3).all()
+    assert set(df["query_id"].unique()) == {1, 2}
+    assert list(df.columns) == ["query_id", "candidate_id", "score", "rank"]
+    assert (df.groupby("query_id")["rank"].count() == 3).all()
 
 
 def test_retrieve_excludes_seen_items_by_default(fitted_model):
-    seen = fitted_model.get_seen_items_by_user()
+    seen = fitted_model.get_seen_candidates_by_query()
     df = fitted_model.retrieve(user_ids=[1], top_k=5, exclude_seen=True)
-    predicted_ids = set(df["item_id"].tolist())
+    predicted_ids = set(df["candidate_id"].tolist())
     assert predicted_ids.isdisjoint(seen.get(1, set()))
 
 

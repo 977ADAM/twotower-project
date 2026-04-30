@@ -5,31 +5,31 @@ import pandas as pd
 
 def normalize_interactions(
     interactions_df: pd.DataFrame,
-    user_col: str = "user_id",
-    item_col: str = "item_id",
+    query_col: str = "query_id",
+    candidate_col: str = "candidate_id",
 ) -> pd.DataFrame:
-    required_columns = {"event_date", user_col, item_col, "clicks"}
+    required_columns = {"event_date", query_col, candidate_col, "clicks"}
     missing_columns = required_columns.difference(interactions_df.columns)
     if missing_columns:
         raise ValueError(f"Interactions dataframe is missing columns: {sorted(missing_columns)}")
 
-    interactions = interactions_df.loc[:, ["event_date", user_col, item_col, "clicks"]].copy()
+    interactions = interactions_df.loc[:, ["event_date", query_col, candidate_col, "clicks"]].copy()
     interactions["event_date"] = pd.to_datetime(interactions["event_date"])
-    interactions[user_col] = interactions[user_col].astype(int)
-    interactions[item_col] = interactions[item_col].astype(int)
+    interactions[query_col] = interactions[query_col].astype(int)
+    interactions[candidate_col] = interactions[candidate_col].astype(int)
     interactions["label"] = (interactions["clicks"] > 0).astype("float32")
     return interactions.sort_values("event_date").reset_index(drop=True)
 
 
 def prepare_interactions(
     interactions_df: pd.DataFrame,
-    user_id_to_idx: dict[int, int],
-    item_id_to_idx: dict[int, int],
+    query_id_to_idx: dict[int, int],
+    candidate_id_to_idx: dict[int, int],
 ) -> pd.DataFrame:
     interactions = normalize_interactions(interactions_df)
     interactions = interactions[
-        interactions["user_id"].isin(user_id_to_idx)
-        & interactions["item_id"].isin(item_id_to_idx)
+        interactions["query_id"].isin(query_id_to_idx)
+        & interactions["candidate_id"].isin(candidate_id_to_idx)
     ]
     return interactions.sort_values("event_date").reset_index(drop=True)
 

@@ -12,12 +12,12 @@ class _Predictable(Protocol):
     """Minimal model contract required by the prediction module."""
 
     config: _Config
-    user_id_to_idx: dict[int, int]
-    item_id_to_idx: dict[int, int]
-    idx_to_user_id: list[int]
-    idx_to_item_id: list[int]
-    user_col: str
-    item_col: str
+    query_id_to_idx: dict[int, int]
+    candidate_id_to_idx: dict[int, int]
+    idx_to_query_id: list[int]
+    idx_to_candidate_id: list[int]
+    query_col: str
+    candidate_col: str
 
     def eval(self) -> object:
         ...
@@ -28,10 +28,10 @@ class _Predictable(Protocol):
     ) -> tuple[torch.Tensor, list[int]]:
         ...
 
-    def get_user_embedding(self, user_id: int) -> torch.Tensor:
+    def get_user_embedding(self, query_id: int) -> torch.Tensor:
         ...
 
-    def get_seen_items_by_user(self) -> dict[int, set[int]]:
+    def get_seen_candidates_by_query(self) -> dict[int, set[int]]:
         ...
 
 
@@ -56,28 +56,28 @@ class TwoTowerPredictor:
             strict=strict,
         )
 
-        empty = pd.DataFrame(columns=[model.user_col, model.item_col, "score", "rank"])
+        empty = pd.DataFrame(columns=[model.query_col, model.candidate_col, "score", "rank"])
         if not resolved_user_ids or not candidate_item_ids:
             return empty
 
         model.eval()
         item_embeddings, candidate_item_ids = model.get_candidate_item_embeddings(candidate_item_ids)
-        seen_items_by_user = model.get_seen_items_by_user() if exclude_seen else {}
+        seen_candidates_by_query = model.get_seen_candidates_by_query() if exclude_seen else {}
 
         rows: list[dict[str, object]] = []
-        for user_id in resolved_user_ids:
+        for query_id in resolved_user_ids:
             scored_items = self.score_top_k_for_user(
                 model,
-                user_id=user_id,
+                query_id=query_id,
                 item_embeddings=item_embeddings,
                 item_ids=candidate_item_ids,
                 top_k=resolved_top_k,
-                excluded_item_ids=seen_items_by_user.get(user_id, set()),
+                excluded_item_ids=seen_candidates_by_query.get(query_id, set()),
             )
-            for rank, (item_id, score) in enumerate(scored_items, start=1):
-                rows.append({model.user_col: user_id, model.item_col: item_id, "score": score, "rank": rank})
+            for rank, (candidate_id, score) in enumerate(scored_items, start=1):
+                rows.append({model.query_col: query_id, model.candidate_col: candidate_id, "score": score, "rank": rank})
 
-        return pd.DataFrame(rows, columns=[model.user_col, model.item_col, "score", "rank"])
+        return pd.DataFrame(rows, columns=[model.query_col, model.candidate_col, "score", "rank"])
 
     def prepare_prediction_inputs(
         self,
@@ -96,19 +96,19 @@ class TwoTowerPredictor:
         resolved_user_ids = (
             self._deduplicate_ids(user_ids)
             if user_ids is not None
-            else model.idx_to_user_id[: min(10, len(model.idx_to_user_id))]
+            else model.idx_to_query_id[: min(10, len(model.idx_to_query_id))]
         )
         resolved_item_ids = (
             self._deduplicate_ids(item_ids)
             if item_ids is not None
-            else list(model.idx_to_item_id)
+            else list(model.idx_to_candidate_id)
         )
 
         unknown_user_ids = [
-            user_id for user_id in resolved_user_ids if user_id not in model.user_id_to_idx
+            query_id for query_id in resolved_user_ids if query_id not in model.query_id_to_idx
         ]
         unknown_item_ids = [
-            item_id for item_id in resolved_item_ids if item_id not in model.item_id_to_idx
+            candidate_id for candidate_id in resolved_item_ids if candidate_id not in model.candidate_id_to_idx
         ]
         if strict and (unknown_user_ids or unknown_item_ids):
             error_messages: list[str] = []
@@ -119,10 +119,10 @@ class TwoTowerPredictor:
             raise ValueError("Prediction received " + "; ".join(error_messages) + ".")
 
         available_user_ids = [
-            int(user_id) for user_id in resolved_user_ids if int(user_id) in model.user_id_to_idx
+            int(query_id) for query_id in resolved_user_ids if int(query_id) in model.query_id_to_idx
         ]
         available_item_ids = [
-            int(item_id) for item_id in resolved_item_ids if int(item_id) in model.item_id_to_idx
+            int(candidate_id) for candidate_id in resolved_item_ids if int(candidate_id) in model.candidate_id_to_idx
         ]
         return available_user_ids, available_item_ids, resolved_top_k
 
@@ -130,24 +130,24 @@ class TwoTowerPredictor:
         self,
         model: _Predictable,
         *,
-        user_id: int,
+        query_id: int,
         item_embeddings: torch.Tensor,
         item_ids: list[int],
         top_k: int,
         excluded_item_ids: set[int] | None = None,
     ) -> list[tuple[int, float]]:
-        if user_id not in model.user_id_to_idx:
+        if query_id not in model.query_id_to_idx:
             return []
 
         excluded_item_ids = excluded_item_ids or set()
         candidate_positions = [
-            position for position, item_id in enumerate(item_ids)
-            if item_id not in excluded_item_ids
+            position for position, candidate_id in enumerate(item_ids)
+            if candidate_id not in excluded_item_ids
         ]
         if not candidate_positions:
             return []
 
-        user_embedding = model.get_user_embedding(user_id)
+        user_embedding = model.get_user_embedding(query_id)
         candidate_embeddings = item_embeddings[candidate_positions]
         scores = torch.matmul(candidate_embeddings, user_embedding)
 
@@ -168,17 +168,17 @@ class TwoTowerPredictor:
         self,
         model: _Predictable,
         *,
-        user_id: int,
+        query_id: int,
         item_embeddings: torch.Tensor,
         item_ids: list[int],
         top_k: int,
         excluded_item_ids: set[int] | None = None,
     ) -> set[int]:
         return {
-            item_id
-            for item_id, _score in self.score_top_k_for_user(
+            candidate_id
+            for candidate_id, _score in self.score_top_k_for_user(
                 model,
-                user_id=user_id,
+                query_id=query_id,
                 item_embeddings=item_embeddings,
                 item_ids=item_ids,
                 top_k=top_k,

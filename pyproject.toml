@@ -23,28 +23,14 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
+    "mkdocs>=1.6.1",
+    "mypy>=1.20.1",
     "numpy>=2.4.4",
     "pandas>=3.0.2",
-    "rich>=15.0.0",
-    "torch>=2.11.0",
-]
-
-[project.optional-dependencies]
-app = [
-    "fastapi>=0.136.0",
-    "gradio>=6.12.0",
-    "pydantic>=2.13.2",
-    "uvicorn>=0.44.0",
-]
-dev = [
-    "mypy>=1.15.0",
     "pytest>=9.0.3",
-    "ruff>=0.11.0",
-]
-docs = [
-    "mkdocs>=1.6",
-    "mkdocs-material>=9.5",
-    "mkdocstrings[python]>=0.26",
+    "rich>=15.0.0",
+    "ruff>=0.15.11",
+    "torch>=2.11.0",
 ]
 
 [project.urls]
@@ -74,3 +60,4 @@ ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["."]

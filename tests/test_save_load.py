@@ -15,12 +15,12 @@ from twotower._src.io.save import TwoTowerModelSaver
 class StubSaveableModel:
     def __init__(self):
         self.config = _Config(top_k=7, device="cpu")
-        self.user_col = "user_id"
-        self.item_col = "item_id"
-        self.user_id_to_idx = {1: 0}
-        self.item_id_to_idx = {10: 0, 30: 1}
-        self.idx_to_user_id = [1]
-        self.idx_to_item_id = [10, 30]
+        self.query_col = "query_id"
+        self.candidate_col = "candidate_id"
+        self.query_id_to_idx = {1: 0}
+        self.candidate_id_to_idx = {10: 0, 30: 1}
+        self.idx_to_query_id = [1]
+        self.idx_to_candidate_id = [10, 30]
         self.train_history = [{"epoch": 1.0, "train_loss": 0.5, "valid_loss": 0.4}]
         self.ensure_fitted_calls = 0
 
@@ -30,16 +30,16 @@ class StubSaveableModel:
     def state_dict(self) -> dict[str, torch.Tensor]:
         return {"weight": torch.tensor([1.0, 2.0])}
 
-    def get_seen_items_by_user(self) -> dict[int, set[int]]:
+    def get_seen_candidates_by_query(self) -> dict[int, set[int]]:
         return {1: {30, 10}}
 
     def get_train_positive_item_ranking(self) -> list[int]:
         return [30, 10]
 
-    def get_user_feature_metadata_dict(self) -> dict[str, object]:
+    def get_query_feature_metadata_dict(self) -> dict[str, object]:
         return FeatureMetadata.empty().to_dict()
 
-    def get_item_feature_metadata_dict(self) -> dict[str, object]:
+    def get_candidate_feature_metadata_dict(self) -> dict[str, object]:
         return FeatureMetadata.empty().to_dict()
 
 
@@ -95,11 +95,11 @@ def test_save_model_persists_checkpoint_payload():
     assert model.ensure_fitted_calls == 1
     assert saved_path == target_path
     assert "config" in checkpoint
-    assert checkpoint["user_col"] == "user_id"
-    assert checkpoint["item_col"] == "item_id"
+    assert checkpoint["query_col"] == "query_id"
+    assert checkpoint["candidate_col"] == "candidate_id"
     assert torch.equal(checkpoint["state_dict"]["weight"], torch.tensor([1.0, 2.0]))
-    assert checkpoint["seen_items_by_user"] == {1: [10, 30]}
-    assert checkpoint["train_positive_item_ids_by_popularity"] == [30, 10]
+    assert checkpoint["seen_candidates_by_query"] == {1: [10, 30]}
+    assert checkpoint["train_positive_candidate_ids_by_popularity"] == [30, 10]
 
 
 def test_load_model_restores_checkpoint_state_through_protocol():
@@ -107,18 +107,18 @@ def test_load_model_restores_checkpoint_state_through_protocol():
     model = StubLoadableModel()
     checkpoint = {
         "config": _Config(top_k=5, device="cpu").__dict__,
-        "user_col": "viewer_id",
-        "item_col": "movie_id",
+        "query_col": "viewer_id",
+        "candidate_col": "movie_id",
         "state_dict": {"weight": torch.tensor([3.0])},
-        "user_id_to_idx": {1: 0},
-        "item_id_to_idx": {10: 0, 30: 1},
-        "idx_to_user_id": [1],
-        "idx_to_item_id": [10, 30],
+        "query_id_to_idx": {1: 0},
+        "candidate_id_to_idx": {10: 0, 30: 1},
+        "idx_to_query_id": [1],
+        "idx_to_candidate_id": [10, 30],
         "train_history": [{"epoch": 1.0, "train_loss": 0.2, "valid_loss": 0.1}],
-        "seen_items_by_user": {1: [10, 30]},
-        "train_positive_item_ids_by_popularity": [30, 10],
-        "user_feature_metadata": FeatureMetadata.empty().to_dict(),
-        "item_feature_metadata": FeatureMetadata.empty().to_dict(),
+        "seen_candidates_by_query": {1: [10, 30]},
+        "train_positive_candidate_ids_by_popularity": [30, 10],
+        "query_feature_metadata": FeatureMetadata.empty().to_dict(),
+        "candidate_feature_metadata": FeatureMetadata.empty().to_dict(),
     }
 
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -129,10 +129,10 @@ def test_load_model_restores_checkpoint_state_through_protocol():
     assert len(model.validate_calls) == 1
     assert model.resolve_device_calls == ["cpu"]
     assert model.applied_state is not None
-    assert model.applied_state.user_col == "viewer_id"
-    assert model.applied_state.item_col == "movie_id"
-    assert model.applied_state.idx_to_user_id == [1]
-    assert model.applied_state.seen_items_by_user == {1: {10, 30}}
+    assert model.applied_state.query_col == "viewer_id"
+    assert model.applied_state.candidate_col == "movie_id"
+    assert model.applied_state.idx_to_query_id == [1]
+    assert model.applied_state.seen_candidates_by_query == {1: {10, 30}}
     assert model.build_tower_calls == [(1, 2)]
     assert torch.equal(model.loaded_state_dict["weight"], torch.tensor([3.0]))
     assert model.to_calls == [torch.device("cpu")]

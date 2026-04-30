@@ -54,8 +54,8 @@ class StubEvaluableModel:
 def evaluator_setup():
     test_input_df = pd.DataFrame({
         "event_date": pd.to_datetime(["2026-01-01", "2026-01-02", "2026-01-03"]),
-        "user_id": [1, 2, 3],
-        "item_id": [10, 20, 30],
+        "query_id": [1, 2, 3],
+        "candidate_id": [10, 20, 30],
         "label": [1.0, 0.0, 1.0],
     })
     prepared_test_df = test_input_df.iloc[[0, 1]].copy()

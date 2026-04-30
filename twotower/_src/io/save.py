@@ -14,12 +14,12 @@ class _Saveable(Protocol):
     """Minimal model contract required by the checkpoint save module."""
 
     config: _Config
-    user_col: str
-    item_col: str
-    user_id_to_idx: dict[int, int]
-    item_id_to_idx: dict[int, int]
-    idx_to_user_id: list[int]
-    idx_to_item_id: list[int]
+    query_col: str
+    candidate_col: str
+    query_id_to_idx: dict[int, int]
+    candidate_id_to_idx: dict[int, int]
+    idx_to_query_id: list[int]
+    idx_to_candidate_id: list[int]
     train_history: list[dict[str, float]]
 
     def ensure_fitted(self) -> None:
@@ -28,16 +28,16 @@ class _Saveable(Protocol):
     def state_dict(self) -> dict[str, torch.Tensor]:
         ...
 
-    def get_seen_items_by_user(self) -> dict[int, set[int]]:
+    def get_seen_candidates_by_query(self) -> dict[int, set[int]]:
         ...
 
     def get_train_positive_item_ranking(self) -> list[int]:
         ...
 
-    def get_user_feature_metadata_dict(self) -> dict[str, object]:
+    def get_query_feature_metadata_dict(self) -> dict[str, object]:
         ...
 
-    def get_item_feature_metadata_dict(self) -> dict[str, object]:
+    def get_candidate_feature_metadata_dict(self) -> dict[str, object]:
         ...
 
 
@@ -51,23 +51,23 @@ class TwoTowerModelSaver:
 
         checkpoint = {
             "config": asdict(model.config),
-            "user_col": model.user_col,
-            "item_col": model.item_col,
+            "query_col": model.query_col,
+            "candidate_col": model.candidate_col,
             "state_dict": model.state_dict(),
-            "user_id_to_idx": model.user_id_to_idx,
-            "item_id_to_idx": model.item_id_to_idx,
-            "idx_to_user_id": model.idx_to_user_id,
-            "idx_to_item_id": model.idx_to_item_id,
+            "query_id_to_idx": model.query_id_to_idx,
+            "candidate_id_to_idx": model.candidate_id_to_idx,
+            "idx_to_query_id": model.idx_to_query_id,
+            "idx_to_candidate_id": model.idx_to_candidate_id,
             "train_history": model.train_history,
-            "seen_items_by_user": {
-                int(user_id): sorted(int(item_id) for item_id in item_ids)
-                for user_id, item_ids in model.get_seen_items_by_user().items()
+            "seen_candidates_by_query": {
+                int(query_id): sorted(int(candidate_id) for candidate_id in item_ids)
+                for query_id, item_ids in model.get_seen_candidates_by_query().items()
             },
-            "train_positive_item_ids_by_popularity": [
-                int(item_id) for item_id in model.get_train_positive_item_ranking()
+            "train_positive_candidate_ids_by_popularity": [
+                int(candidate_id) for candidate_id in model.get_train_positive_item_ranking()
             ],
-            "user_feature_metadata": model.get_user_feature_metadata_dict(),
-            "item_feature_metadata": model.get_item_feature_metadata_dict(),
+            "query_feature_metadata": model.get_query_feature_metadata_dict(),
+            "candidate_feature_metadata": model.get_candidate_feature_metadata_dict(),
         }
         torch.save(checkpoint, target_path)
         return target_path

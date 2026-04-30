@@ -17,18 +17,18 @@ class LoadedCheckpointState:
     """Normalized checkpoint state ready to be applied to a model instance."""
 
     config: _Config
-    user_col: str
-    item_col: str
+    query_col: str
+    candidate_col: str
     device: torch.device
-    user_id_to_idx: dict[int, int]
-    item_id_to_idx: dict[int, int]
-    idx_to_user_id: list[int]
-    idx_to_item_id: list[int]
+    query_id_to_idx: dict[int, int]
+    candidate_id_to_idx: dict[int, int]
+    idx_to_query_id: list[int]
+    idx_to_candidate_id: list[int]
     train_history: list[dict[str, float]]
-    seen_items_by_user: dict[int, set[int]]
-    train_positive_item_ids_by_popularity: list[int]
-    user_feature_metadata: FeatureMetadata
-    item_feature_metadata: FeatureMetadata
+    seen_candidates_by_query: dict[int, set[int]]
+    train_positive_candidate_ids_by_popularity: list[int]
+    query_feature_metadata: FeatureMetadata
+    candidate_feature_metadata: FeatureMetadata
 
 
 class _Loadable(Protocol):
@@ -76,7 +76,7 @@ class TwoTowerModelLoader:
 
         loaded_state = self.build_loaded_checkpoint_state(model, checkpoint)
         model.apply_loaded_checkpoint_state(loaded_state)
-        model.build_towers(len(loaded_state.idx_to_user_id), len(loaded_state.idx_to_item_id))
+        model.build_towers(len(loaded_state.idx_to_query_id), len(loaded_state.idx_to_candidate_id))
         model.load_state_dict(checkpoint["state_dict"])
         model.to(loaded_state.device)
         model.invalidate_item_embedding_cache()
@@ -99,35 +99,35 @@ class TwoTowerModelLoader:
         config = _Config(**config_dict)
         return LoadedCheckpointState(
             config=config,
-            user_col=str(checkpoint.get("user_col", "user_id")),
-            item_col=str(checkpoint.get("item_col", "item_id")),
+            query_col=str(checkpoint.get("query_col", "query_id")),
+            candidate_col=str(checkpoint.get("candidate_col", "candidate_id")),
             device=model.resolve_device(config.device),
-            user_id_to_idx={
-                int(user_id): int(index)
-                for user_id, index in dict(checkpoint["user_id_to_idx"]).items()
+            query_id_to_idx={
+                int(query_id): int(index)
+                for query_id, index in dict(checkpoint["query_id_to_idx"]).items()
             },
-            item_id_to_idx={
-                int(item_id): int(index)
-                for item_id, index in dict(checkpoint["item_id_to_idx"]).items()
+            candidate_id_to_idx={
+                int(candidate_id): int(index)
+                for candidate_id, index in dict(checkpoint["candidate_id_to_idx"]).items()
             },
-            idx_to_user_id=[int(user_id) for user_id in checkpoint["idx_to_user_id"]],
-            idx_to_item_id=[int(item_id) for item_id in checkpoint["idx_to_item_id"]],
+            idx_to_query_id=[int(query_id) for query_id in checkpoint["idx_to_query_id"]],
+            idx_to_candidate_id=[int(candidate_id) for candidate_id in checkpoint["idx_to_candidate_id"]],
             train_history=[
                 {str(metric_name): float(metric_value) for metric_name, metric_value in record.items()}
                 for record in checkpoint.get("train_history", [])
             ],
-            seen_items_by_user={
-                int(user_id): {int(item_id) for item_id in item_ids}
-                for user_id, item_ids in dict(checkpoint.get("seen_items_by_user", {})).items()
+            seen_candidates_by_query={
+                int(query_id): {int(candidate_id) for candidate_id in item_ids}
+                for query_id, item_ids in dict(checkpoint.get("seen_candidates_by_query", {})).items()
             },
-            train_positive_item_ids_by_popularity=[
-                int(item_id)
-                for item_id in checkpoint.get("train_positive_item_ids_by_popularity", [])
+            train_positive_candidate_ids_by_popularity=[
+                int(candidate_id)
+                for candidate_id in checkpoint.get("train_positive_candidate_ids_by_popularity", [])
             ],
-            user_feature_metadata=FeatureMetadata.from_dict(
-                checkpoint.get("user_feature_metadata")
+            query_feature_metadata=FeatureMetadata.from_dict(
+                checkpoint.get("query_feature_metadata")
             ),
-            item_feature_metadata=FeatureMetadata.from_dict(
-                checkpoint.get("item_feature_metadata")
+            candidate_feature_metadata=FeatureMetadata.from_dict(
+                checkpoint.get("candidate_feature_metadata")
             ),
         )
