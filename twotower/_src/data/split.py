@@ -6,7 +6,7 @@ import pandas as pd
 def normalize_interactions(
     interactions_df: pd.DataFrame,
     user_col: str = "user_id",
-    item_col: str = "banner_id",
+    item_col: str = "item_id",
 ) -> pd.DataFrame:
     required_columns = {"event_date", user_col, item_col, "clicks"}
     missing_columns = required_columns.difference(interactions_df.columns)
@@ -29,7 +29,7 @@ def prepare_interactions(
     interactions = normalize_interactions(interactions_df)
     interactions = interactions[
         interactions["user_id"].isin(user_id_to_idx)
-        & interactions["banner_id"].isin(item_id_to_idx)
+        & interactions["item_id"].isin(item_id_to_idx)
     ]
     return interactions.sort_values("event_date").reset_index(drop=True)
 

@@ -114,7 +114,7 @@ class PairwiseInteractionsDataset(Dataset[tuple[torch.Tensor, torch.Tensor, torc
             dtype=torch.long,
         )
         self.pos_item_tensor = torch.tensor(
-            positive_df["banner_id"].map(item_id_to_idx).to_numpy(),
+            positive_df["item_id"].map(item_id_to_idx).to_numpy(),
             dtype=torch.long,
         )
         self.num_items = int(num_items)
@@ -178,7 +178,7 @@ class PairwiseInteractionsDataset(Dataset[tuple[torch.Tensor, torch.Tensor, torc
     ) -> dict[int, list[int]]:
         filtered_df = interactions_df[interactions_df["label"] == target_label]
         pools: dict[int, list[int]] = {}
-        for user_id, item_series in filtered_df.groupby("user_id")["banner_id"]:
+        for user_id, item_series in filtered_df.groupby("user_id")["item_id"]:
             if int(user_id) not in user_id_to_idx:
                 continue
 

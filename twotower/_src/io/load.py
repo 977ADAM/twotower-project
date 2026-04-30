@@ -100,7 +100,7 @@ class TwoTowerModelLoader:
         return LoadedCheckpointState(
             config=config,
             user_col=str(checkpoint.get("user_col", "user_id")),
-            item_col=str(checkpoint.get("item_col", "banner_id")),
+            item_col=str(checkpoint.get("item_col", "item_id")),
             device=model.resolve_device(config.device),
             user_id_to_idx={
                 int(user_id): int(index)

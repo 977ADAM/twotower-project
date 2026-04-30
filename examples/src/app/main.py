@@ -48,7 +48,7 @@ def health():
 @app.post("/recommendations")
 def recommend(request: RecommendationRequest):
     try:
-        predictions = get_model().predict(
+        predictions = get_model().retrieve(
             user_ids=request.user_ids,
             item_ids=request.item_ids,
             top_k=request.top_k,

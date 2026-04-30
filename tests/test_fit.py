@@ -64,9 +64,9 @@ class StubTrainableModel(nn.Module):
 
 @pytest.fixture
 def interactions_data():
-    positive_df = pd.DataFrame({"user_id": [1, 2], "banner_id": [10, 20], "label": [1.0, 1.0]})
+    positive_df = pd.DataFrame({"user_id": [1, 2], "item_id": [10, 20], "label": [1.0, 1.0]})
     interactions_df = pd.DataFrame(
-        {"user_id": [1, 1, 2, 2], "banner_id": [10, 20, 20, 10], "label": [1.0, 0.0, 1.0, 0.0]}
+        {"user_id": [1, 1, 2, 2], "item_id": [10, 20, 20, 10], "label": [1.0, 0.0, 1.0, 0.0]}
     )
     user_id_to_idx = {1: 0, 2: 1}
     item_id_to_idx = {10: 0, 20: 1, 30: 2}

@@ -20,7 +20,7 @@ def normalize_fit_interactions(
     df: pd.DataFrame,
     split_name: str,
     user_col: str = "user_id",
-    item_col: str = "banner_id",
+    item_col: str = "item_id",
 ) -> pd.DataFrame:
     """Validate and normalize a labeled interactions DataFrame for fitting."""
     if not isinstance(df, pd.DataFrame):
@@ -36,14 +36,14 @@ def normalize_fit_interactions(
         )
 
     prepared_df = df.loc[:, [user_col, item_col, "label"]].copy()
-    prepared_df = prepared_df.rename(columns={user_col: "user_id", item_col: "banner_id"})
+    prepared_df = prepared_df.rename(columns={user_col: "user_id", item_col: "item_id"})
     return prepared_df.reset_index(drop=True)
 
 
 def build_id_mappings(train_df: pd.DataFrame) -> IdMappings:
     """Build bidirectional user/item ID ↔ index mappings from training data."""
     idx_to_user_id = train_df["user_id"].astype(int).drop_duplicates().sort_values().tolist()
-    idx_to_item_id = train_df["banner_id"].astype(int).drop_duplicates().sort_values().tolist()
+    idx_to_item_id = train_df["item_id"].astype(int).drop_duplicates().sort_values().tolist()
     return IdMappings(
         user_id_to_idx={user_id: idx for idx, user_id in enumerate(idx_to_user_id)},
         item_id_to_idx={item_id: idx for idx, item_id in enumerate(idx_to_item_id)},
@@ -61,24 +61,24 @@ def filter_and_sample_interactions(
     sort_by_event_date: bool = False,
 ) -> pd.DataFrame:
     """Filter to known user/item IDs and sort by date."""
-    required_columns = {"user_id", "banner_id", "label"}
+    required_columns = {"user_id", "item_id", "label"}
     missing_columns = required_columns.difference(interactions_df.columns)
     if missing_columns:
         raise ValueError(
             f"Prepared interactions dataframe is missing columns: {sorted(missing_columns)}"
         )
 
-    selected_columns = ["user_id", "banner_id", "label"]
+    selected_columns = ["user_id", "item_id", "label"]
     if "event_date" in interactions_df.columns:
         selected_columns.append("event_date")
 
     interactions = interactions_df.loc[:, selected_columns].copy()
     interactions["user_id"] = interactions["user_id"].astype(int)
-    interactions["banner_id"] = interactions["banner_id"].astype(int)
+    interactions["item_id"] = interactions["item_id"].astype(int)
     interactions["label"] = interactions["label"].astype("float32")
     interactions = interactions[
         interactions["user_id"].isin(user_id_to_idx)
-        & interactions["banner_id"].isin(item_id_to_idx)
+        & interactions["item_id"].isin(item_id_to_idx)
     ]
 
     if sort_by_event_date and "event_date" in interactions.columns:
@@ -112,9 +112,9 @@ def prepare_retrieval_pairs(
 def prepare_evaluation_inputs(
     X_test: pd.DataFrame,
     user_col: str = "user_id",
-    item_col: str = "banner_id",
+    item_col: str = "item_id",
 ) -> pd.DataFrame:
-    """Validate and normalize evaluation DataFrame to (event_date, user_id, banner_id, label) format."""
+    """Validate and normalize evaluation DataFrame to (event_date, user_id, item_id, label) format."""
     if not isinstance(X_test, pd.DataFrame):
         raise TypeError(
             "Evaluation features must be a pandas DataFrame with "
@@ -129,17 +129,17 @@ def prepare_evaluation_inputs(
         )
 
     evaluation_df = X_test.copy()
-    evaluation_df = evaluation_df.rename(columns={user_col: "user_id", item_col: "banner_id"})
+    evaluation_df = evaluation_df.rename(columns={user_col: "user_id", item_col: "item_id"})
 
     if "label" in evaluation_df.columns:
         evaluation_df["user_id"] = evaluation_df["user_id"].astype(int)
-        evaluation_df["banner_id"] = evaluation_df["banner_id"].astype(int)
+        evaluation_df["item_id"] = evaluation_df["item_id"].astype(int)
         evaluation_df["label"] = evaluation_df["label"].astype("float32")
         if "event_date" not in evaluation_df.columns:
             evaluation_df["event_date"] = pd.Timestamp("1970-01-01")
         else:
             evaluation_df["event_date"] = pd.to_datetime(evaluation_df["event_date"])
-        return evaluation_df.loc[:, ["event_date", "user_id", "banner_id", "label"]]
+        return evaluation_df.loc[:, ["event_date", "user_id", "item_id", "label"]]
 
     if "clicks" not in evaluation_df.columns:
         raise ValueError(
@@ -184,7 +184,7 @@ def build_evaluation_reference_data(
     for dataframe in (train_df, valid_df):
         if dataframe is None or dataframe.empty:
             continue
-        grouped = dataframe.groupby("user_id")["banner_id"]
+        grouped = dataframe.groupby("user_id")["item_id"]
         for user_id, item_ids in grouped:
             seen_items_by_user.setdefault(int(user_id), set()).update(
                 int(item_id) for item_id in item_ids.tolist()
@@ -194,7 +194,7 @@ def build_evaluation_reference_data(
         return seen_items_by_user, []
 
     train_positive_item_ids_by_popularity = (
-        train_df.loc[train_df["label"] == 1.0, "banner_id"]
+        train_df.loc[train_df["label"] == 1.0, "item_id"]
         .astype(int)
         .value_counts()
         .index

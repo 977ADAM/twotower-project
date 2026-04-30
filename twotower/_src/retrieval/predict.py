@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Protocol, Sequence
 
+import pandas as pd
 import torch
 
 from twotower._src.config import _Config
@@ -15,6 +16,7 @@ class _Predictable(Protocol):
     item_id_to_idx: dict[int, int]
     idx_to_user_id: list[int]
     idx_to_item_id: list[int]
+    user_col: str
     item_col: str
 
     def eval(self) -> object:
@@ -45,7 +47,7 @@ class TwoTowerPredictor:
         top_k: int | None = None,
         exclude_seen: bool = True,
         strict: bool = False,
-    ) -> dict[int, list[dict[str, float]]]:
+    ) -> pd.DataFrame:
         resolved_user_ids, candidate_item_ids, resolved_top_k = self.prepare_prediction_inputs(
             model,
             user_ids=user_ids,
@@ -53,14 +55,16 @@ class TwoTowerPredictor:
             top_k=top_k,
             strict=strict,
         )
+
+        empty = pd.DataFrame(columns=[model.user_col, model.item_col, "score", "rank"])
         if not resolved_user_ids or not candidate_item_ids:
-            return {}
+            return empty
 
         model.eval()
         item_embeddings, candidate_item_ids = model.get_candidate_item_embeddings(candidate_item_ids)
         seen_items_by_user = model.get_seen_items_by_user() if exclude_seen else {}
 
-        predictions: dict[int, list[dict[str, float]]] = {}
+        rows: list[dict[str, object]] = []
         for user_id in resolved_user_ids:
             scored_items = self.score_top_k_for_user(
                 model,
@@ -70,12 +74,10 @@ class TwoTowerPredictor:
                 top_k=resolved_top_k,
                 excluded_item_ids=seen_items_by_user.get(user_id, set()),
             )
-            predictions[user_id] = [
-                {model.item_col: item_id, "score": score}
-                for item_id, score in scored_items
-            ]
+            for rank, (item_id, score) in enumerate(scored_items, start=1):
+                rows.append({model.user_col: user_id, model.item_col: item_id, "score": score, "rank": rank})
 
-        return predictions
+        return pd.DataFrame(rows, columns=[model.user_col, model.item_col, "score", "rank"])
 
     def prepare_prediction_inputs(
         self,

@@ -8,8 +8,9 @@ from twotower._src.retrieval.predict import TwoTowerPredictor
 
 
 class StubPredictableModel:
-    def __init__(self, item_col: str = "banner_id"):
+    def __init__(self, item_col: str = "item_id"):
         self.config = _Config(top_k=2)
+        self.user_col = "user_id"
         self.item_col = item_col
         self.user_id_to_idx = {1: 0, 2: 1}
         self.item_id_to_idx = {10: 0, 20: 1, 30: 2}
@@ -44,27 +45,28 @@ def predictor_setup():
 
 def test_predict_excludes_seen_items_by_default(predictor_setup):
     model, predictor = predictor_setup
-    predictions = predictor.predict(model, user_ids=[1], top_k=2)
+    df = predictor.predict(model, user_ids=[1], top_k=2)
 
     assert model.eval_calls == 1
-    assert [row["banner_id"] for row in predictions[1]] == [20, 30]
+    assert df["item_id"].tolist() == [20, 30]
+    assert df["rank"].tolist() == [1, 2]
 
 
 def test_predict_deduplicates_ids_and_skips_unknown_ids_by_default(predictor_setup):
     model, predictor = predictor_setup
-    predictions = predictor.predict(model, user_ids=[999, 1, 1], item_ids=[20, 20, 30, 999], top_k=5)
+    df = predictor.predict(model, user_ids=[999, 1, 1], item_ids=[20, 20, 30, 999], top_k=5)
 
-    assert list(predictions.keys()) == [1]
-    assert [row["banner_id"] for row in predictions[1]] == [20, 30]
+    assert df["user_id"].unique().tolist() == [1]
+    assert df["item_id"].tolist() == [20, 30]
 
 
 def test_predict_uses_custom_item_col_in_output():
     model = StubPredictableModel(item_col="product_id")
     predictor = TwoTowerPredictor()
-    predictions = predictor.predict(model, user_ids=[1], top_k=2)
+    df = predictor.predict(model, user_ids=[1], top_k=2)
 
-    assert all("product_id" in row for row in predictions[1])
-    assert all("banner_id" not in row for row in predictions[1])
+    assert "product_id" in df.columns
+    assert "item_id" not in df.columns
 
 
 def test_predict_strict_raises_for_unknown_ids(predictor_setup):

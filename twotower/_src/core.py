@@ -87,7 +87,7 @@ class TwoTower(TwoTowerBase):
 
         model = TwoTower(tower_dims=(128, 64))
         model.fit(train_df, validation_data=valid_df, epochs=10)
-        recommendations = model.predict(user_ids=[1, 2, 3], top_k=10)
+        recommendations = model.retrieve(user_ids=[1, 2, 3], top_k=10)
         metrics = model.evaluate(test_df)
         model.save_model("model.pth")
         ```
@@ -111,7 +111,7 @@ class TwoTower(TwoTowerBase):
         self.tower_dims = tower_dims
         self.dropout = dropout
         self.user_col: str = "user_id"
-        self.item_col: str = "banner_id"
+        self.item_col: str = "item_id"
         self.device: torch.device = torch.device("cpu")
         self.user_id_to_idx: dict[int, int] = {}
         self.item_id_to_idx: dict[int, int] = {}
@@ -141,7 +141,7 @@ class TwoTower(TwoTowerBase):
         *,
         validation_data: pd.DataFrame | None = None,
         user_col: str = "user_id",
-        item_col: str = "banner_id",
+        item_col: str = "item_id",
         users_df: pd.DataFrame | None = None,
         items_df: pd.DataFrame | None = None,
         user_feature_config: FeatureConfig | None = None,
@@ -239,14 +239,14 @@ class TwoTower(TwoTowerBase):
         return self.train_history
 
     @filter_traceback
-    def predict(
+    def retrieve(
         self,
         user_ids: Sequence[int] | None = None,
         item_ids: Sequence[int] | None = None,
         top_k: int | None = None,
         exclude_seen: bool = True,
         strict: bool = False,
-    ) -> dict[int, list[dict[str, float]]]:
+    ) -> pd.DataFrame:
         """Return top-k item recommendations for the requested users.
 
         Args:
@@ -257,12 +257,12 @@ class TwoTower(TwoTowerBase):
                 ``top_k`` config value.
             exclude_seen: Whether to exclude items the user interacted with
                 during training.
-            strict: If ``True``, raises ``KeyError`` for unknown user or item IDs.
+            strict: If ``True``, raises ``ValueError`` for unknown user or item IDs.
                 If ``False``, they are silently skipped.
 
         Returns:
-            A dict mapping each user ID to a ranked list of
-            ``{item_col: item_id, "score": float}`` dicts.
+            DataFrame with columns [user_col, item_col, "score", "rank"],
+            sorted by user and rank.
         """
         self.ensure_fitted()
         return self._predictor.predict(
@@ -371,7 +371,7 @@ class TwoTower(TwoTowerBase):
             positive_test_df=positive_test_df,
             input_row_count=len(test_input_df),
             unknown_user_row_count=int((~test_input_df["user_id"].isin(self.user_id_to_idx)).sum()),
-            unknown_item_row_count=int((~test_input_df["banner_id"].isin(self.item_id_to_idx)).sum()),
+            unknown_item_row_count=int((~test_input_df["item_id"].isin(self.item_id_to_idx)).sum()),
         )
 
     def make_loader(
@@ -453,7 +453,7 @@ class TwoTower(TwoTowerBase):
         seen_items_by_user = self.get_seen_items_by_user() if exclude_seen else {}
         item_embeddings, item_ids = self.get_candidate_item_embeddings(list(self.idx_to_item_id))
         for user_id in candidate_user_ids:
-            actual_items = set(positive_df.loc[positive_df["user_id"] == user_id, "banner_id"].astype(int))
+            actual_items = set(positive_df.loc[positive_df["user_id"] == user_id, "item_id"].astype(int))
             predicted_items = self._predictor.predict_top_k_item_ids_for_user(
                 self,
                 user_id=user_id,
@@ -480,7 +480,7 @@ class TwoTower(TwoTowerBase):
         recalls = []
         seen_items_by_user = self.get_seen_items_by_user()
         for user_id in candidate_user_ids:
-            actual_items = set(positive_df.loc[positive_df["user_id"] == user_id, "banner_id"].astype(int))
+            actual_items = set(positive_df.loc[positive_df["user_id"] == user_id, "item_id"].astype(int))
             if not actual_items:
                 continue
 

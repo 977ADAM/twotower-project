@@ -17,7 +17,7 @@ def small_interactions():
     ] + [
         (u, i, 0.0) for u in range(1, 6) for i in range(6, 11)
     ]
-    df = pd.DataFrame(rows, columns=["user_id", "banner_id", "label"])
+    df = pd.DataFrame(rows, columns=["user_id", "item_id", "label"])
     train = df.copy()
     valid = df.copy()
     test = df.copy()
@@ -27,8 +27,8 @@ def small_interactions():
 @pytest.fixture
 def fitted_model(small_interactions):
     train, valid, _ = small_interactions
-    model = TwoTower(epochs=2, batch_size=8, eval_during_training=False, device="cpu", seed=0)
-    model.fit(train, validation_data=valid, early_stopping=None)
+    model = TwoTower()
+    model.fit(train, validation_data=valid, epochs=2, batch_size=8, eval_during_training=False, device="cpu", seed=0, patience=None)
     return model
 
 
@@ -50,38 +50,36 @@ def test_fit_populates_id_mappings(fitted_model):
 def test_fit_with_early_stopping_can_halt_early(small_interactions):
     train, valid, _ = small_interactions
     # lr=0 → loss never changes → early stopping triggers after patience+1 epochs
-    model = TwoTower(epochs=20, batch_size=8, learning_rate=0.0, eval_during_training=False, device="cpu", seed=0)
-    history = model.fit(train, validation_data=valid, patience=2, min_delta=0.0)
+    model = TwoTower()
+    history = model.fit(train, validation_data=valid, epochs=20, batch_size=8, learning_rate=0.0, eval_during_training=False, device="cpu", seed=0, patience=2, min_delta=0.0)
     assert len(history) < 20
 
 
-# ── predict ───────────────────────────────────────────────────────────────────
+# ── retrieve ──────────────────────────────────────────────────────────────────
 
-def test_predict_returns_top_k_items_per_user(fitted_model):
-    # exclude_seen=False so seen items don't reduce the candidate set
-    predictions = fitted_model.predict(user_ids=[1, 2], top_k=3, exclude_seen=False)
-    assert set(predictions.keys()) == {1, 2}
-    for recs in predictions.values():
-        assert len(recs) == 3
-        assert all("banner_id" in r and "score" in r for r in recs)  # default item_col
+def test_retrieve_returns_top_k_items_per_user(fitted_model):
+    df = fitted_model.retrieve(user_ids=[1, 2], top_k=3, exclude_seen=False)
+    assert set(df["user_id"].unique()) == {1, 2}
+    assert list(df.columns) == ["user_id", "item_id", "score", "rank"]
+    assert (df.groupby("user_id")["rank"].count() == 3).all()
 
 
-def test_predict_excludes_seen_items_by_default(fitted_model):
+def test_retrieve_excludes_seen_items_by_default(fitted_model):
     seen = fitted_model.get_seen_items_by_user()
-    predictions = fitted_model.predict(user_ids=[1], top_k=5, exclude_seen=True)
-    predicted_ids = {r["banner_id"] for r in predictions[1]}
+    df = fitted_model.retrieve(user_ids=[1], top_k=5, exclude_seen=True)
+    predicted_ids = set(df["item_id"].tolist())
     assert predicted_ids.isdisjoint(seen.get(1, set()))
 
 
-def test_predict_raises_before_fit():
+def test_retrieve_raises_before_fit():
     model = TwoTower()
     with pytest.raises(RuntimeError, match="not fitted"):
-        model.predict()
+        model.retrieve()
 
 
-def test_predict_strict_raises_for_unknown_user(fitted_model):
+def test_retrieve_strict_raises_for_unknown_user(fitted_model):
     with pytest.raises(ValueError, match="unknown user_ids"):
-        fitted_model.predict(user_ids=[9999], strict=True)
+        fitted_model.retrieve(user_ids=[9999], strict=True)
 
 
 # ── evaluate ──────────────────────────────────────────────────────────────────
@@ -98,16 +96,15 @@ def test_evaluate_returns_recall_and_loss_metrics(fitted_model, small_interactio
 
 def test_save_and_load_produces_identical_predictions(fitted_model, small_interactions):
     _, _, test = small_interactions
-    original_preds = fitted_model.predict(user_ids=[1, 2], top_k=5)
+    original_preds = fitted_model.retrieve(user_ids=[1, 2], top_k=5)
 
     with tempfile.TemporaryDirectory() as tmpdir:
         path = Path(tmpdir) / "model.pth"
         fitted_model.save_model(path)
-
         loaded = TwoTower().load_model(path)
 
-    loaded_preds = loaded.predict(user_ids=[1, 2], top_k=5)
-    assert original_preds == loaded_preds
+    loaded_preds = loaded.retrieve(user_ids=[1, 2], top_k=5)
+    assert original_preds.equals(loaded_preds)
 
 
 def test_load_model_raises_for_missing_file():

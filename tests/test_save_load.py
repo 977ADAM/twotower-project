@@ -16,7 +16,7 @@ class StubSaveableModel:
     def __init__(self):
         self.config = _Config(top_k=7, device="cpu")
         self.user_col = "user_id"
-        self.item_col = "banner_id"
+        self.item_col = "item_id"
         self.user_id_to_idx = {1: 0}
         self.item_id_to_idx = {10: 0, 30: 1}
         self.idx_to_user_id = [1]
@@ -96,7 +96,7 @@ def test_save_model_persists_checkpoint_payload():
     assert saved_path == target_path
     assert "config" in checkpoint
     assert checkpoint["user_col"] == "user_id"
-    assert checkpoint["item_col"] == "banner_id"
+    assert checkpoint["item_col"] == "item_id"
     assert torch.equal(checkpoint["state_dict"]["weight"], torch.tensor([1.0, 2.0]))
     assert checkpoint["seen_items_by_user"] == {1: [10, 30]}
     assert checkpoint["train_positive_item_ids_by_popularity"] == [30, 10]

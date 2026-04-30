@@ -70,13 +70,13 @@ def main():
     console.print({"metrics": metrics})
 
     sample_users = model.idx_to_user_id[: min(config.sample_user_count, len(model.idx_to_user_id))]
-    predictions = model.predict(
+    predictions = model.retrieve(
         user_ids=sample_users,
         top_k=config.sample_prediction_top_k,
         exclude_seen=config.exclude_seen_predictions,
         strict=True,
     )
-    console.print({"sample_predictions": predictions})
+    console.print(predictions.head(20).to_string())
 
     model.save_model(config.model_save_path)
 

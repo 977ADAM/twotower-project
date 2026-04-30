@@ -15,21 +15,21 @@ from twotower._src.data.preprocessing import (
 # ── normalize_fit_interactions ────────────────────────────────────────────────
 
 def test_normalize_fit_interactions_returns_correct_columns():
-    df = pd.DataFrame({"user_id": [1, 2], "banner_id": [10, 20], "label": [1.0, 0.0]})
+    df = pd.DataFrame({"user_id": [1, 2], "item_id": [10, 20], "label": [1.0, 0.0]})
     result = normalize_fit_interactions(df, split_name="train")
-    assert list(result.columns) == ["user_id", "banner_id", "label"]
+    assert list(result.columns) == ["user_id", "item_id", "label"]
     assert result["label"].tolist() == [1.0, 0.0]
 
 
 def test_normalize_fit_interactions_raises_for_missing_label():
-    df = pd.DataFrame({"user_id": [1], "banner_id": [10]})
+    df = pd.DataFrame({"user_id": [1], "item_id": [10]})
     with pytest.raises(ValueError, match="label"):
         normalize_fit_interactions(df, split_name="train")
 
 
 def test_normalize_fit_interactions_raises_for_missing_item_col():
     df = pd.DataFrame({"user_id": [1], "label": [1.0]})
-    with pytest.raises(ValueError, match="banner_id"):
+    with pytest.raises(ValueError, match="item_id"):
         normalize_fit_interactions(df, split_name="train")
 
 
@@ -41,7 +41,7 @@ def test_normalize_fit_interactions_raises_for_non_dataframe():
 # ── build_id_mappings ─────────────────────────────────────────────────────────
 
 def test_build_id_mappings_creates_correct_bidirectional_mappings():
-    df = pd.DataFrame({"user_id": [3, 1, 2], "banner_id": [30, 10, 30], "label": [1.0, 1.0, 0.0]})
+    df = pd.DataFrame({"user_id": [3, 1, 2], "item_id": [30, 10, 30], "label": [1.0, 1.0, 0.0]})
     mappings = build_id_mappings(df)
     assert mappings.idx_to_user_id == [1, 2, 3]
     assert mappings.user_id_to_idx == {1: 0, 2: 1, 3: 2}
@@ -55,7 +55,7 @@ def test_build_id_mappings_creates_correct_bidirectional_mappings():
 def interactions_df():
     return pd.DataFrame({
         "user_id": [1, 1, 2, 2, 99],
-        "banner_id": [10, 20, 10, 30, 10],
+        "item_id": [10, 20, 10, 30, 10],
         "label": [1.0, 0.0, 1.0, 1.0, 1.0],
     })
 
@@ -74,7 +74,7 @@ def test_filter_removes_unknown_users_and_items(interactions_df):
 
 def test_filter_raises_for_missing_columns():
     config = _Config()
-    df = pd.DataFrame({"user_id": [1], "banner_id": [10]})
+    df = pd.DataFrame({"user_id": [1], "item_id": [10]})
     with pytest.raises(ValueError, match="label"):
         filter_and_sample_interactions(df, user_id_to_idx={1: 0}, item_id_to_idx={10: 0}, config=config)
 
@@ -95,7 +95,7 @@ def test_prepare_retrieval_pairs_returns_only_positives(interactions_df):
 
 def test_prepare_retrieval_pairs_raises_when_no_positives():
     config = _Config()
-    df = pd.DataFrame({"user_id": [1], "banner_id": [10], "label": [0.0]})
+    df = pd.DataFrame({"user_id": [1], "item_id": [10], "label": [0.0]})
     with pytest.raises(ValueError, match="no positive interactions"):
         prepare_retrieval_pairs(
             df, user_id_to_idx={1: 0}, item_id_to_idx={10: 0}, config=config, split_name="train"
@@ -107,7 +107,7 @@ def test_prepare_retrieval_pairs_raises_when_no_positives():
 def test_build_evaluation_reference_data_returns_seen_items_and_popularity():
     train_df = pd.DataFrame({
         "user_id": [1, 1, 2],
-        "banner_id": [10, 20, 10],
+        "item_id": [10, 20, 10],
         "label": [1.0, 1.0, 1.0],
     })
     seen, popularity = build_evaluation_reference_data(train_df, None)
@@ -117,8 +117,8 @@ def test_build_evaluation_reference_data_returns_seen_items_and_popularity():
 
 
 def test_build_evaluation_reference_data_merges_train_and_valid():
-    train_df = pd.DataFrame({"user_id": [1], "banner_id": [10], "label": [1.0]})
-    valid_df = pd.DataFrame({"user_id": [1], "banner_id": [20], "label": [1.0]})
+    train_df = pd.DataFrame({"user_id": [1], "item_id": [10], "label": [1.0]})
+    valid_df = pd.DataFrame({"user_id": [1], "item_id": [20], "label": [1.0]})
     seen, _ = build_evaluation_reference_data(train_df, valid_df)
     assert seen[1] == {10, 20}
 

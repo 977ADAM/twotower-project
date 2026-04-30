@@ -12,7 +12,7 @@ def _make_interactions(dates: list[str], clicks: list[int] | None = None) -> pd.
     return pd.DataFrame({
         "event_date": dates,
         "user_id": list(range(1, n + 1)),
-        "banner_id": list(range(101, n + 101)),
+        "item_id": list(range(101, n + 101)),
         "clicks": clicks if clicks is not None else [1] * n,
     })
 
@@ -33,7 +33,7 @@ def test_normalize_interactions_sorts_by_date():
 
 
 def test_normalize_interactions_raises_for_missing_columns():
-    df = pd.DataFrame({"event_date": ["2024-01-01"], "user_id": [1], "banner_id": [10]})
+    df = pd.DataFrame({"event_date": ["2024-01-01"], "user_id": [1], "item_id": [10]})
     with pytest.raises(ValueError, match="clicks"):
         normalize_interactions(df)
 
