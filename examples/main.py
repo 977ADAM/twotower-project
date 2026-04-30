@@ -55,6 +55,8 @@ def main():
     history = model.fit(
         train_df,
         validation_data=valid_df,
+        query_col="user_id",
+        candidate_col="banner_id",
         queries_df=queries_df,
         candidates_df=candidates_df,
         query_feature_config=query_feature_config,

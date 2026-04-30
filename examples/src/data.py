@@ -19,9 +19,9 @@ def bucketize_age(values: pd.Series) -> pd.Series:
 
 
 def _normalize_interactions(interactions_df: pd.DataFrame) -> pd.DataFrame:
-    df = interactions_df.loc[:, ["event_date", "query_id", "banner_id", "clicks"]].copy()
+    df = interactions_df.loc[:, ["event_date", "user_id", "banner_id", "clicks"]].copy()
     df["event_date"] = pd.to_datetime(df["event_date"])
-    df["query_id"] = df["query_id"].astype(int)
+    df["user_id"] = df["user_id"].astype(int)
     df["banner_id"] = df["banner_id"].astype(int)
     df["label"] = (df["clicks"] > 0).astype("float32")
     return df.sort_values("event_date").reset_index(drop=True)
@@ -42,13 +42,13 @@ def prepare_interactions(
     queries_df: pd.DataFrame,
     candidates_df: pd.DataFrame,
 ) -> pd.DataFrame:
-    known_user_ids = set(queries_df["query_id"].astype(int).tolist())
+    known_user_ids = set(queries_df["user_id"].astype(int).tolist())
     known_item_ids = set(candidates_df["banner_id"].astype(int).tolist())
     console.print(f"Unique users: {len(known_user_ids)}")
     console.print(f"Unique items: {len(known_item_ids)}")
 
     df = _normalize_interactions(interactions_df)
-    df = df[df["query_id"].isin(known_user_ids) & df["banner_id"].isin(known_item_ids)]
+    df = df[df["user_id"].isin(known_user_ids) & df["banner_id"].isin(known_item_ids)]
     console.print(f"Prepared interactions: {len(df)}")
     return df.reset_index(drop=True)
 
