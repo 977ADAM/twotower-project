@@ -1,26 +1,48 @@
+from typing import Callable
+
+import torch
 import torch.nn as nn
 
 
-def build_mlp(
-    input_dim: int,
-    hidden_dims: tuple[int, ...],
-    output_dim: int,
-    dropout: float,
-) -> nn.Sequential:
-    """Build a linear projection or MLP depending on whether hidden_dims is provided.
+class Perceptron(nn.Module):
+    def __init__(
+        self,
+        in_size: int,
+        out_size: int,
+        bias: bool = True,
+        activation: Callable[[], nn.Module] = nn.ReLU,
+        bn: bool = True,
+        dropout: float = 0.0,
+    ) -> None:
+        super().__init__()
+        self.linear = nn.Linear(in_size, out_size, bias=bias)
+        self.bn: nn.Module = nn.BatchNorm1d(out_size) if bn else nn.Identity()
+        self.activation = activation()
+        self.dropout: nn.Module = nn.Dropout(dropout) if dropout > 0.0 else nn.Identity()
 
-    When hidden_dims=(), returns a single Linear(input_dim, output_dim).
-    When hidden_dims=(d1, d2, ...), inserts BatchNorm1d + ReLU + optional Dropout
-    between each pair of layers and a final Linear(..., output_dim) with no activation.
-    """
-    layers: list[nn.Module] = []
-    in_dim = input_dim
-    for h_dim in hidden_dims:
-        layers.append(nn.Linear(in_dim, h_dim))
-        layers.append(nn.BatchNorm1d(h_dim))
-        layers.append(nn.ReLU())
-        if dropout > 0.0:
-            layers.append(nn.Dropout(dropout))
-        in_dim = h_dim
-    layers.append(nn.Linear(in_dim, output_dim))
-    return nn.Sequential(*layers)
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.dropout(self.activation(self.bn(self.linear(x))))
+
+
+class MLP(nn.Module):
+    def __init__(
+        self,
+        in_size: int,
+        layer_sizes: tuple[int, ...],
+        bias: bool = True,
+        activation: Callable[[], nn.Module] = nn.ReLU,
+        dropout: float = 0.0,
+    ) -> None:
+        super().__init__()
+        sizes = (in_size,) + layer_sizes
+        self.layers = nn.ModuleList(
+            [
+                Perceptron(sizes[i], sizes[i + 1], bias=bias, activation=activation, bn=True, dropout=dropout)
+                for i in range(len(sizes) - 1)
+            ]
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        for layer in self.layers:
+            x = layer(x)
+        return x

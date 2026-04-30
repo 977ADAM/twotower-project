@@ -6,7 +6,7 @@ import torch.nn as nn
 from twotower._src.config import _Config
 from twotower._src.data.features import FeatureMetadata, FeatureTables
 
-from .mlp import build_mlp
+from .mlp import MLP
 
 
 class Tower(nn.Module):
@@ -45,10 +45,9 @@ class Tower(nn.Module):
         total_input_dim += len(self.feature_metadata.scalar_feature_names) * config.side_feature_embedding_dim
         total_input_dim += len(self.feature_metadata.multi_feature_names) * config.side_feature_embedding_dim
 
-        self.mlp = build_mlp(
-            input_dim=total_input_dim,
-            hidden_dims=config.tower_dims,
-            output_dim=config.hidden_dim,
+        self.mlp = MLP(
+            in_size=total_input_dim,
+            layer_sizes=config.tower_dims + (config.hidden_dim,),
             dropout=config.dropout,
         )
         self.norm = nn.LayerNorm(config.hidden_dim)

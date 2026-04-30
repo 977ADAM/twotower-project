@@ -16,6 +16,7 @@ from twotower._src.data.features import (
     FeatureConfig,
     FeatureMetadata,
     FeatureTables,
+    MultiFeatureSpec,
     build_feature_tables,
 )
 from twotower._src.data.preprocessing import (
@@ -44,6 +45,20 @@ from twotower._src.metrics import mean_recall, user_recall
 from twotower._src.utils.traceback_utils import filter_traceback
 
 console = Console()
+
+
+def _build_feature_config(
+    scalar_features: list[str] | None,
+    multi_features: dict[str, list[str]] | None,
+) -> FeatureConfig:
+    return FeatureConfig(
+        scalar_features=tuple(scalar_features or []),
+        multi_features=tuple(
+            MultiFeatureSpec(name=name, columns=tuple(cols))
+            for name, cols in (multi_features or {}).items()
+        ),
+    )
+
 
 class TwoTower(TwoTowerBase):
     def __init__(
@@ -97,8 +112,10 @@ class TwoTower(TwoTowerBase):
         candidate_col: str = "candidate_id",
         queries_df: pd.DataFrame | None = None,
         candidates_df: pd.DataFrame | None = None,
-        query_feature_config: FeatureConfig | None = None,
-        candidate_feature_config: FeatureConfig | None = None,
+        query_features: list[str] | None = None,
+        query_multi_features: dict[str, list[str]] | None = None,
+        candidate_features: list[str] | None = None,
+        candidate_multi_features: dict[str, list[str]] | None = None,
         observed_ratio: float = 0.8,
         in_batch_loss_weight: float = 0.0,
         learning_rate: float = 1e-3,
@@ -163,8 +180,10 @@ class TwoTower(TwoTowerBase):
         self._prepare_side_feature_tables(
             queries_df=queries_df,
             candidates_df=candidates_df,
-            query_feature_config=query_feature_config,
-            candidate_feature_config=candidate_feature_config,
+            query_features=query_features,
+            query_multi_features=query_multi_features,
+            candidate_features=candidate_features,
+            candidate_multi_features=candidate_multi_features,
         )
         self._negative_sampling = negative_sampling
 
@@ -589,8 +608,10 @@ class TwoTower(TwoTowerBase):
         *,
         queries_df: pd.DataFrame | None,
         candidates_df: pd.DataFrame | None,
-        query_feature_config: FeatureConfig | None,
-        candidate_feature_config: FeatureConfig | None,
+        query_features: list[str] | None,
+        query_multi_features: dict[str, list[str]] | None,
+        candidate_features: list[str] | None,
+        candidate_multi_features: dict[str, list[str]] | None,
     ) -> None:
         if queries_df is None and candidates_df is None:
             self._query_feature_tables = None
@@ -602,11 +623,8 @@ class TwoTower(TwoTowerBase):
         if queries_df is None or candidates_df is None:
             raise ValueError("`queries_df` and `candidates_df` must be provided together when using side features.")
 
-        if query_feature_config is None or candidate_feature_config is None:
-            raise ValueError(
-                "`query_feature_config` and `candidate_feature_config` must be provided"
-                " together with `queries_df` and `candidates_df`."
-            )
+        query_feature_config = _build_feature_config(query_features, query_multi_features)
+        candidate_feature_config = _build_feature_config(candidate_features, candidate_multi_features)
 
         self._query_feature_tables = build_feature_tables(
             df=queries_df,

@@ -3,7 +3,7 @@ from rich.console import Console
 from src.config import Config
 from src.data import bucketize_age, load_training_frames
 
-from twotower import FeatureConfig, MultiFeatureSpec, TwoTower
+from twotower import TwoTower
 
 console = Console()
 
@@ -24,33 +24,6 @@ def main():
         / 2.0
     )
 
-    query_feature_config = FeatureConfig(
-        scalar_features=(
-            "age_bucket",
-            "gender",
-            "city_tier",
-            "device_os",
-            "platform",
-            "income_band",
-            "activity_segment",
-            "is_premium",
-        ),
-        multi_features=(
-            MultiFeatureSpec("interest_ids", columns=("interest_1", "interest_2", "interest_3")),
-        ),
-    )
-    candidate_feature_config = FeatureConfig(
-        scalar_features=(
-            "brand",
-            "category",
-            "subcategory",
-            "banner_format",
-            "campaign_goal",
-            "target_gender",
-            "target_age_bucket",
-        ),
-    )
-
     model = TwoTower(tower_dims=(256, 128), dropout=0.3)
     history = model.fit(
         train_df,
@@ -59,8 +32,9 @@ def main():
         candidate_col="banner_id",
         queries_df=queries_df,
         candidates_df=candidates_df,
-        query_feature_config=query_feature_config,
-        candidate_feature_config=candidate_feature_config,
+        query_features=["age_bucket", "gender", "city_tier", "device_os", "platform", "income_band", "activity_segment", "is_premium"],
+        query_multi_features={"interest_ids": ["interest_1", "interest_2", "interest_3"]},
+        candidate_features=["brand", "category", "subcategory", "banner_format", "campaign_goal", "target_gender", "target_age_bucket"],
         observed_ratio=0.8,
         weight_decay=1e-3,
         patience=5,
