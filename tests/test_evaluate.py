@@ -197,3 +197,19 @@ def test_popularity_recall_at_k_returns_zero_for_empty_ranking(evaluator_setup):
     # model.get_train_positive_item_ranking() → [] → popularity_recall = 0.0
 
     assert evaluator.popularity_recall_at_k(model, evaluate_inputs.prepared_test_df, top_k=5) == 0.0
+
+
+def test_popularity_recall_at_k_returns_correct_score_for_non_empty_ranking(evaluator_setup):
+    _, evaluate_inputs, evaluator = evaluator_setup
+
+    class ModelWithRanking(StubEvaluableModel):
+        def get_train_positive_item_ranking(self) -> list[int]:
+            return [10, 20, 30]  # item 10 ranked first
+
+    model = ModelWithRanking(evaluate_inputs)
+    # prepared_test_df: query_id=1 has label=1.0, candidate_id=10
+    # popularity top-1 is item 10, no seen candidates → predicted = {10}
+    # actual_items = {10} → recall = 1.0
+    recall = evaluator.popularity_recall_at_k(model, evaluate_inputs.prepared_test_df, top_k=1)
+
+    assert recall == 1.0
