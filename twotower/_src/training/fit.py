@@ -11,7 +11,7 @@ from rich.console import Console
 from torch.utils.data import DataLoader, Dataset
 
 from twotower._src.config import _Config
-from twotower._src.training.progress import EpochProgress
+from twotower._src.training.progress import EpochProgress, EpochSummary
 
 console = Console()
 
@@ -347,13 +347,15 @@ class TwoTowerTrainer:
                     else:
                         epochs_without_improvement += 1
 
-                progress.finish_epoch(epoch, self.config.epochs, epoch_metrics)
+                summary = EpochSummary(
+                    metrics=epoch_metrics,
+                    is_best=(epochs_without_improvement == 0 and best_metric_value is not None),
+                    patience_used=epochs_without_improvement,
+                    patience_total=early_stopping.patience if early_stopping is not None else None,
+                )
+                progress.finish_epoch(epoch, self.config.epochs, summary)
 
                 if early_stopping is not None and epochs_without_improvement >= early_stopping.patience:
-                    console.print(
-                        f"Early stopping at epoch {epoch} "
-                        f"(no improvement in {early_stopping.metric} for {early_stopping.patience} epochs)"
-                    )
                     break
 
         if best_state_dict is not None:

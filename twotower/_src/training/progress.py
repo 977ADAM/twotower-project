@@ -77,7 +77,7 @@ def _build_epoch_line(
 
 
 class EpochProgress:
-    """Rich progress bar tracking batch-level progress within each epoch.
+    """Rich progress bar with two tracks: overall epoch progress and per-epoch batch progress.
 
     Usage::
 
@@ -87,7 +87,7 @@ class EpochProgress:
                 for batch in loader:
                     # ... training step ...
                     bar.advance()
-                bar.finish_epoch(epoch, total, metrics)
+                bar.finish_epoch(epoch, total, summary)
     """
 
     def __init__(self) -> None:
@@ -102,43 +102,44 @@ class EpochProgress:
             console=console,
             transient=False,
         )
-        self._task_id: TaskID | None = None
+        self._overall_task_id: TaskID | None = None
+        self._batch_task_id: TaskID | None = None
+        self._prev_metrics: dict[str, float] = {}
 
     def __enter__(self) -> "EpochProgress":
         self._progress.__enter__()
-        self._task_id = self._progress.add_task("Epoch 0/0", total=1)
+        self._overall_task_id = self._progress.add_task("Training", total=1)
+        self._batch_task_id = self._progress.add_task("Epoch 0/0", total=1)
         return self
 
     def __exit__(self, *args: object) -> None:
         self._progress.__exit__(*args)
 
     def start_epoch(self, epoch: int, total_epochs: int, num_batches: int) -> None:
-        """Reset the bar for a new epoch."""
-        if self._task_id is None:
+        """Reset the batch bar and update the overall bar description for a new epoch."""
+        if self._overall_task_id is None or self._batch_task_id is None:
             return
+        self._progress.update(
+            self._overall_task_id,
+            total=total_epochs,
+            description=f"Training epoch {epoch}/{total_epochs}",
+        )
         self._progress.reset(
-            self._task_id,
+            self._batch_task_id,
             total=num_batches,
             description=f"Epoch {epoch}/{total_epochs}",
         )
 
     def advance(self) -> None:
-        """Advance the bar by one batch."""
-        if self._task_id is None:
+        """Advance the batch bar by one."""
+        if self._batch_task_id is None:
             return
-        self._progress.advance(self._task_id)
+        self._progress.advance(self._batch_task_id)
 
-    def finish_epoch(self, epoch: int, total_epochs: int, metrics: dict[str, float]) -> None:
-        """Print a summary line with metrics after the epoch completes."""
-        parts: list[str] = []
-        if "train_loss" in metrics:
-            parts.append(f"[yellow]train_loss[/]={metrics['train_loss']:.4f}")
-        if "valid_loss" in metrics:
-            parts.append(f"[cyan]valid_loss[/]={metrics['valid_loss']:.4f}")
-        for key, value in metrics.items():
-            if key.startswith("recall_at_"):
-                parts.append(f"[green]{key}[/]={value:.4f}")
-
-        self._progress.console.print(
-            f"[dim]Epoch {epoch}/{total_epochs}[/]  " + "  ".join(parts)
-        )
+    def finish_epoch(self, epoch: int, total_epochs: int, summary: EpochSummary) -> None:
+        """Print a summary line and advance the overall epoch bar."""
+        line = _build_epoch_line(epoch, total_epochs, summary, self._prev_metrics)
+        self._progress.console.print(line)
+        self._prev_metrics = dict(summary.metrics)
+        if self._overall_task_id is not None:
+            self._progress.advance(self._overall_task_id)
