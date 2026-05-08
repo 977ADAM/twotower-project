@@ -7,17 +7,23 @@ def normalize_interactions(
     interactions_df: pd.DataFrame,
     query_col: str = "query_id",
     candidate_col: str = "candidate_id",
+    *,
+    clicks_col: str = "clicks",
+    positive_threshold: float | None = None,
 ) -> pd.DataFrame:
-    required_columns = {"event_date", query_col, candidate_col, "clicks"}
+    required_columns = {"event_date", query_col, candidate_col, clicks_col}
     missing_columns = required_columns.difference(interactions_df.columns)
     if missing_columns:
         raise ValueError(f"Interactions dataframe is missing columns: {sorted(missing_columns)}")
 
-    interactions = interactions_df.loc[:, ["event_date", query_col, candidate_col, "clicks"]].copy()
+    interactions = interactions_df.loc[:, ["event_date", query_col, candidate_col, clicks_col]].copy()
     interactions["event_date"] = pd.to_datetime(interactions["event_date"])
     interactions[query_col] = interactions[query_col].astype(int)
     interactions[candidate_col] = interactions[candidate_col].astype(int)
-    interactions["label"] = (interactions["clicks"] > 0).astype("float32")
+    if positive_threshold is not None:
+        interactions["label"] = (interactions[clicks_col] >= positive_threshold).astype("float32")
+    else:
+        interactions["label"] = (interactions[clicks_col] > 0).astype("float32")
     return interactions.sort_values("event_date").reset_index(drop=True)
 
 

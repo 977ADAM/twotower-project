@@ -613,33 +613,31 @@ class TwoTower(TwoTowerBase):
         candidate_features: list[str] | None,
         candidate_multi_features: dict[str, list[str]] | None,
     ) -> None:
-        if queries_df is None and candidates_df is None:
+        if queries_df is not None:
+            query_feature_config = _build_feature_config(query_features, query_multi_features)
+            self._query_feature_tables = build_feature_tables(
+                df=queries_df,
+                entity_ids=self.idx_to_query_id,
+                config=query_feature_config,
+                id_column=self.query_col,
+            )
+            self._query_feature_metadata = self._query_feature_tables.metadata
+        else:
             self._query_feature_tables = None
-            self._candidate_feature_tables = None
             self._query_feature_metadata = FeatureMetadata.empty()
+
+        if candidates_df is not None:
+            candidate_feature_config = _build_feature_config(candidate_features, candidate_multi_features)
+            self._candidate_feature_tables = build_feature_tables(
+                df=candidates_df,
+                entity_ids=self.idx_to_candidate_id,
+                config=candidate_feature_config,
+                id_column=self.candidate_col,
+            )
+            self._candidate_feature_metadata = self._candidate_feature_tables.metadata
+        else:
+            self._candidate_feature_tables = None
             self._candidate_feature_metadata = FeatureMetadata.empty()
-            return
-
-        if queries_df is None or candidates_df is None:
-            raise ValueError("`queries_df` and `candidates_df` must be provided together when using side features.")
-
-        query_feature_config = _build_feature_config(query_features, query_multi_features)
-        candidate_feature_config = _build_feature_config(candidate_features, candidate_multi_features)
-
-        self._query_feature_tables = build_feature_tables(
-            df=queries_df,
-            entity_ids=self.idx_to_query_id,
-            config=query_feature_config,
-            id_column=self.query_col,
-        )
-        self._candidate_feature_tables = build_feature_tables(
-            df=candidates_df,
-            entity_ids=self.idx_to_candidate_id,
-            config=candidate_feature_config,
-            id_column=self.candidate_col,
-        )
-        self._query_feature_metadata = self._query_feature_tables.metadata
-        self._candidate_feature_metadata = self._candidate_feature_tables.metadata
 
     def _refresh_evaluation_reference_data(self) -> None:
         seen, popularity = build_evaluation_reference_data(self.train_df, None)

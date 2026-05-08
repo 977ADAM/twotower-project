@@ -38,6 +38,39 @@ def test_normalize_interactions_raises_for_missing_columns():
         normalize_interactions(df)
 
 
+def test_normalize_interactions_positive_threshold():
+    df = pd.DataFrame({
+        "event_date": ["2024-01-01"] * 4,
+        "query_id": [1, 2, 3, 4],
+        "candidate_id": [10, 11, 12, 13],
+        "rating": [1.0, 3.5, 4.0, 5.0],
+    })
+    result = normalize_interactions(df, clicks_col="rating", positive_threshold=4.0)
+    assert result["label"].tolist() == [0.0, 0.0, 1.0, 1.0]
+
+
+def test_normalize_interactions_custom_clicks_col():
+    df = pd.DataFrame({
+        "event_date": ["2024-01-01", "2024-01-02"],
+        "query_id": [1, 2],
+        "candidate_id": [10, 11],
+        "score": [0, 3],
+    })
+    result = normalize_interactions(df, clicks_col="score")
+    assert result["label"].tolist() == [0.0, 1.0]
+
+
+def test_normalize_interactions_threshold_below_zero():
+    df = pd.DataFrame({
+        "event_date": ["2024-01-01", "2024-01-02"],
+        "query_id": [1, 2],
+        "candidate_id": [10, 11],
+        "rating": [3.9, 4.0],
+    })
+    result = normalize_interactions(df, clicks_col="rating", positive_threshold=4.0)
+    assert result["label"].tolist() == [0.0, 1.0]
+
+
 # ── split_interactions ────────────────────────────────────────────────────────
 
 @pytest.fixture
