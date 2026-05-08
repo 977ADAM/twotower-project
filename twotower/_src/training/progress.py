@@ -25,6 +25,57 @@ class EpochSummary:
     patience_total: int | None = None
 
 
+_TREND_EPSILON = 1e-4
+
+
+def _is_metric_improvement(key: str, delta: float) -> bool:
+    if key.startswith("recall_at_"):
+        return delta > 0
+    return delta < 0
+
+
+def _trend_markup(key: str, delta: float) -> str:
+    if abs(delta) < _TREND_EPSILON:
+        return " [dim]→[/]"
+    if _is_metric_improvement(key, delta):
+        return f" [green]{'↓' if delta < 0 else '↑'}[/]"
+    return f" [red]{'↑' if delta > 0 else '↓'}[/]"
+
+
+def _build_epoch_line(
+    epoch: int,
+    total_epochs: int,
+    summary: EpochSummary,
+    prev_metrics: dict[str, float],
+) -> str:
+    parts: list[str] = [f"[dim]Epoch {epoch}/{total_epochs}[/]"]
+
+    for key, value in summary.metrics.items():
+        if key == "epoch":
+            continue
+        if key == "train_loss":
+            part = f"[yellow]{key}[/]={value:.4f}"
+        elif key == "valid_loss":
+            part = f"[cyan]{key}[/]={value:.4f}"
+        elif key.startswith("recall_at_"):
+            part = f"[green]{key}[/]={value:.4f}"
+        else:
+            part = f"{key}={value:.4f}"
+
+        if key in prev_metrics:
+            part += _trend_markup(key, value - prev_metrics[key])
+
+        parts.append(part)
+
+    if summary.is_best:
+        parts.append("[bold green]★ best[/]")
+
+    if summary.patience_total is not None and summary.patience_used > 0:
+        parts.append(f"[dim]no improvement {summary.patience_used}/{summary.patience_total}[/]")
+
+    return "  ".join(parts)
+
+
 class EpochProgress:
     """Rich progress bar tracking batch-level progress within each epoch.
 
