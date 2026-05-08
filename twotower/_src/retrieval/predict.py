@@ -191,15 +191,16 @@ class TwoTowerPredictor:
         if item_ids == all_item_ids:
             return all_item_embeddings, all_item_ids
 
-        candidate_positions = [
-            model.candidate_id_to_idx[candidate_id]
-            for candidate_id in item_ids
-            if candidate_id in model.candidate_id_to_idx
+        valid_pairs = [
+            (model.candidate_id_to_idx[cid], cid)
+            for cid in item_ids
+            if cid in model.candidate_id_to_idx
         ]
-        if not candidate_positions:
+        if not valid_pairs:
             return all_item_embeddings[:0], []
 
-        return all_item_embeddings[candidate_positions], item_ids
+        positions, valid_ids = zip(*valid_pairs)
+        return all_item_embeddings[list(positions)], list(valid_ids)
 
     def get_user_embedding(self, model: _Predictable, query_id: int) -> torch.Tensor:
         if query_id not in model.query_id_to_idx:
@@ -214,6 +215,7 @@ class TwoTowerPredictor:
             return model.encode_queries(user_index).squeeze(0)
 
     def invalidate_cache(self) -> None:
+        """Clear the cached item embeddings. Must be called when the model weights change."""
         self._cached_all_item_embeddings = None
         self._cached_all_item_ids = None
 

@@ -110,6 +110,16 @@ def test_get_candidate_item_embeddings_reuses_cache(predictor_setup):
     assert emb1 is emb2
 
 
+def test_get_candidate_item_embeddings_subset_filters_unknown_ids(predictor_setup):
+    model, predictor = predictor_setup
+    # Request [10, 999] — 999 is unknown; should return only embedding for 10
+    embeddings, returned_ids = predictor.get_candidate_item_embeddings(model, [10, 999])
+
+    assert returned_ids == [10]
+    assert embeddings.shape == (1, 2)
+    assert torch.allclose(embeddings[0], torch.tensor([1.0, 0.0]))
+
+
 def test_invalidate_cache_clears_state(predictor_setup):
     model, predictor = predictor_setup
     predictor.get_candidate_item_embeddings(model, model.idx_to_candidate_id)
