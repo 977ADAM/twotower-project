@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from types import TracebackType
 
 from rich.console import Console
 from rich.progress import (
@@ -112,8 +113,13 @@ class EpochProgress:
         self._batch_task_id = self._progress.add_task("Epoch 0/0", total=1)
         return self
 
-    def __exit__(self, *args: object) -> None:
-        self._progress.__exit__(*args)
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
+        self._progress.__exit__(exc_type, exc_val, exc_tb)
 
     def start_epoch(self, epoch: int, total_epochs: int, num_batches: int) -> None:
         """Reset the batch bar and update the overall bar description for a new epoch."""
