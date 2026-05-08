@@ -10,6 +10,7 @@ import torch.nn as nn
 from torch.utils.data import DataLoader, Dataset
 
 from twotower._src.config import _Config
+from twotower._src.protocols import _HasConfig, _HasEmbeddings, _HasIDMappings
 from twotower._src.training.progress import EpochProgress, EpochSummary
 
 
@@ -216,56 +217,24 @@ def build_pairwise_loader(
     return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, drop_last=drop_last)
 
 
-class _Trainable(Protocol):
+class _Trainable(_HasEmbeddings, _HasIDMappings, _HasConfig, Protocol):
     """Minimal model contract required by the training module."""
 
-    config: _Config
-    query_id_to_idx: dict[int, int]
-    candidate_id_to_idx: dict[int, int]
+    def build_towers(self, num_users: int, num_items: int) -> None: ...
 
-    def build_towers(self, num_users: int, num_items: int) -> None:
-        ...
+    def to(self, device: torch.device) -> nn.Module: ...
 
-    def to(self, device: torch.device) -> nn.Module:
-        ...
+    def parameters(self) -> Iterator[nn.Parameter]: ...
 
-    def parameters(self) -> Iterator[nn.Parameter]:
-        ...
+    def state_dict(self) -> dict[str, torch.Tensor]: ...
 
-    def state_dict(self) -> dict[str, torch.Tensor]:
-        ...
+    def load_state_dict(self, state_dict: dict[str, torch.Tensor]) -> None: ...
 
-    def load_state_dict(self, state_dict: dict[str, torch.Tensor]) -> None:
-        ...
+    def train(self, mode: bool = True) -> object: ...
 
-    def train(self, mode: bool = True) -> object:
-        ...
+    def eval(self) -> object: ...
 
-    def eval(self) -> object:
-        ...
-
-    def encode_queries(self, user_input: torch.Tensor) -> torch.Tensor:
-        ...
-
-    def encode_candidates(self, item_input: torch.Tensor) -> torch.Tensor:
-        ...
-
-    def score_pairs(
-        self,
-        user_input: torch.Tensor,
-        item_input: torch.Tensor,
-    ) -> torch.Tensor:
-        ...
-
-    def retrieval_logits(
-        self,
-        user_input: torch.Tensor,
-        item_input: torch.Tensor,
-    ) -> torch.Tensor:
-        ...
-
-    def recall_at_k(self, evaluation_df: pd.DataFrame, top_k: int, exclude_seen: bool = True) -> float:
-        ...
+    def recall_at_k(self, evaluation_df: pd.DataFrame, top_k: int, exclude_seen: bool = True) -> float: ...
 
 
 class TwoTowerTrainer:
