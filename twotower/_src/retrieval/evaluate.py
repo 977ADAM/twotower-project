@@ -4,9 +4,12 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 
 import pandas as pd
+import torch
+import torch.nn as nn
 from torch.utils.data import DataLoader
 
 from twotower._src.config import _Config
+from twotower._src.metrics import mean_recall, user_recall
 
 
 @dataclass(slots=True)
@@ -25,12 +28,15 @@ class _Evaluable(Protocol):
     """Minimal model contract required by the evaluation module."""
 
     config: _Config
+    device: torch.device
+    query_id_to_idx: dict[int, int]
+    candidate_id_to_idx: dict[int, int]
+    idx_to_candidate_id: list[int]
 
-    def ensure_fitted(self) -> None:
-        ...
+    def eval(self) -> object: ...
+    def ensure_fitted(self) -> None: ...
 
-    def build_evaluate_inputs(self, X_test: pd.DataFrame) -> EvaluateInputs:
-        ...
+    def build_evaluate_inputs(self, X_test: pd.DataFrame) -> EvaluateInputs: ...
 
     def make_loader(
         self,
@@ -38,23 +44,16 @@ class _Evaluable(Protocol):
         positive_df: pd.DataFrame,
         interactions_df: pd.DataFrame,
         shuffle: bool,
-    ) -> DataLoader[Any]:
-        ...
+    ) -> DataLoader[Any]: ...
 
-    def evaluate_loader(self, loader: DataLoader[Any], prefix: str = "valid") -> dict[str, float]:
-        ...
+    def resolve_eval_top_ks(self, top_k: int | None) -> list[int]: ...
 
-    def resolve_eval_top_ks(self, top_k: int | None) -> list[int]:
-        ...
+    def score_pairs(self, user_input: torch.Tensor, item_input: torch.Tensor) -> torch.Tensor: ...
+    def encode_queries(self, user_input: torch.Tensor) -> torch.Tensor: ...
+    def encode_candidates(self, item_input: torch.Tensor) -> torch.Tensor: ...
 
-    def recall_at_k(self, evaluation_df: pd.DataFrame, top_k: int) -> float:
-        ...
-
-    def popularity_recall_at_k(self, evaluation_df: pd.DataFrame, top_k: int) -> float:
-        ...
-
-    def get_eval_user_ids(self, evaluation_df: pd.DataFrame) -> list[int]:
-        ...
+    def get_seen_candidates_by_query(self) -> dict[int, set[int]]: ...
+    def get_train_positive_item_ranking(self) -> list[int]: ...
 
 
 class TwoTowerEvaluator:
@@ -73,7 +72,8 @@ class TwoTowerEvaluator:
                 "Evaluation dataset is empty after filtering out unknown users and items."
             )
 
-        metrics = model.evaluate_loader(
+        metrics = self.evaluate_loader(
+            model,
             model.make_loader(
                 positive_df=evaluate_inputs.positive_test_df,
                 interactions_df=evaluate_inputs.prepared_test_df,
@@ -82,13 +82,11 @@ class TwoTowerEvaluator:
             prefix="test",
         )
         for eval_top_k in model.resolve_eval_top_ks(top_k):
-            metrics[f"recall_at_{eval_top_k}"] = model.recall_at_k(
-                evaluate_inputs.prepared_test_df,
-                eval_top_k,
+            metrics[f"recall_at_{eval_top_k}"] = self.recall_at_k(
+                model, evaluate_inputs.prepared_test_df, eval_top_k,
             )
-            metrics[f"popularity_recall_at_{eval_top_k}"] = model.popularity_recall_at_k(
-                evaluate_inputs.prepared_test_df,
-                eval_top_k,
+            metrics[f"popularity_recall_at_{eval_top_k}"] = self.popularity_recall_at_k(
+                model, evaluate_inputs.prepared_test_df, eval_top_k,
             )
 
         selected_top_k = model.config.top_k if top_k is None else int(top_k)
@@ -104,10 +102,139 @@ class TwoTowerEvaluator:
         metrics["test_positive_rate"] = float(evaluate_inputs.prepared_test_df["label"].mean())
         metrics["test_positive_pairs_used_for_loss"] = float(len(evaluate_inputs.positive_test_df))
         metrics["test_eval_user_count"] = float(
-            len(model.get_eval_user_ids(evaluate_inputs.prepared_test_df))
+            len(self.get_eval_user_ids(model, evaluate_inputs.prepared_test_df))
         )
         metrics["test_rows_filtered_ratio"] = (
             float(evaluate_inputs.input_row_count - len(evaluate_inputs.prepared_test_df))
             / max(float(evaluate_inputs.input_row_count), 1.0)
         )
         return metrics
+
+    def evaluate_loader(
+        self,
+        model: _Evaluable,
+        loader: DataLoader[Any],
+        prefix: str = "valid",
+    ) -> dict[str, float]:
+        model.eval()
+        criterion = nn.LogSigmoid()
+        loss_sum = 0.0
+        total = 0
+
+        with torch.no_grad():
+            for user_batch, pos_item_batch, neg_item_batch in loader:
+                user_batch = user_batch.to(model.device)
+                pos_item_batch = pos_item_batch.to(model.device)
+                neg_item_batch = neg_item_batch.to(model.device)
+
+                positive_scores = model.score_pairs(user_batch, pos_item_batch)
+                negative_scores = model.score_pairs(user_batch, neg_item_batch)
+                loss: torch.Tensor = -criterion(positive_scores - negative_scores).mean()
+
+                batch_size = user_batch.size(0)
+                loss_sum += loss.item() * batch_size
+                total += batch_size
+
+        return {f"{prefix}_loss": loss_sum / max(total, 1)}
+
+    def get_eval_user_ids(self, model: _Evaluable, evaluation_df: pd.DataFrame) -> list[int]:
+        positive_df = evaluation_df[evaluation_df["label"] == 1.0]
+        if positive_df.empty:
+            return []
+        return list(
+            positive_df["query_id"]
+            .drop_duplicates()
+            .head(model.config.max_eval_users)
+            .astype(int)
+        )
+
+    def recall_at_k(
+        self,
+        model: _Evaluable,
+        evaluation_df: pd.DataFrame,
+        top_k: int,
+        exclude_seen: bool = True,
+    ) -> float:
+        candidate_user_ids = self.get_eval_user_ids(model, evaluation_df)
+        if not candidate_user_ids:
+            return 0.0
+
+        positive_df = evaluation_df[evaluation_df["label"] == 1.0]
+        seen_candidates_by_query = model.get_seen_candidates_by_query() if exclude_seen else {}
+
+        item_ids = list(model.idx_to_candidate_id)
+        item_indices = torch.tensor(
+            [model.candidate_id_to_idx[cid] for cid in item_ids],
+            dtype=torch.long,
+            device=model.device,
+        )
+        with torch.no_grad():
+            item_embeddings = model.encode_candidates(item_indices)
+
+        recalls = []
+        for query_id in candidate_user_ids:
+            actual_items = set(
+                positive_df.loc[positive_df["query_id"] == query_id, "candidate_id"].astype(int)
+            )
+            if not actual_items or query_id not in model.query_id_to_idx:
+                continue
+
+            excluded = seen_candidates_by_query.get(query_id, set())
+            candidate_positions = [
+                pos for pos, cid in enumerate(item_ids) if cid not in excluded
+            ]
+            if not candidate_positions:
+                recalls.append(0.0)
+                continue
+
+            user_idx = torch.tensor(
+                [model.query_id_to_idx[query_id]], dtype=torch.long, device=model.device,
+            )
+            with torch.no_grad():
+                user_embedding = model.encode_queries(user_idx).squeeze(0)
+
+            candidate_embeddings = item_embeddings[candidate_positions]
+            scores = torch.matmul(candidate_embeddings, user_embedding)
+            k = min(top_k, scores.size(0))
+            _, top_positions = torch.topk(scores, k=k)
+            predicted_items = {item_ids[candidate_positions[p]] for p in top_positions.cpu().tolist()}
+            recalls.append(user_recall(actual_items, predicted_items))
+
+        return mean_recall(recalls)
+
+    def popularity_recall_at_k(
+        self,
+        model: _Evaluable,
+        evaluation_df: pd.DataFrame,
+        top_k: int,
+    ) -> float:
+        candidate_user_ids = self.get_eval_user_ids(model, evaluation_df)
+        if not candidate_user_ids:
+            return 0.0
+
+        popularity_ranking = model.get_train_positive_item_ranking()
+        if not popularity_ranking:
+            return 0.0
+
+        positive_df = evaluation_df[evaluation_df["label"] == 1.0]
+        seen_candidates_by_query = model.get_seen_candidates_by_query()
+        recalls = []
+        for query_id in candidate_user_ids:
+            actual_items = set(
+                positive_df.loc[positive_df["query_id"] == query_id, "candidate_id"].astype(int)
+            )
+            if not actual_items:
+                continue
+
+            excluded_item_ids = seen_candidates_by_query.get(query_id, set())
+            predicted_items: list[int] = []
+            for candidate_id in popularity_ranking:
+                if candidate_id in excluded_item_ids:
+                    continue
+                predicted_items.append(candidate_id)
+                if len(predicted_items) == top_k:
+                    break
+
+            recalls.append(user_recall(actual_items, set(predicted_items)))
+
+        return mean_recall(recalls)

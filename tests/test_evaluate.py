@@ -2,52 +2,66 @@ from __future__ import annotations
 
 import pandas as pd
 import pytest
+import torch
 
 from twotower._src.config import _Config
 from twotower._src.retrieval.evaluate import EvaluateInputs, TwoTowerEvaluator
 
 
 class StubEvaluableModel:
+    """Stub satisfying the updated _Evaluable protocol (no evaluate_loader/recall_at_k on model)."""
+
     def __init__(self, evaluate_inputs: EvaluateInputs):
         self.config = _Config(top_k=10, eval_top_ks=(5, 10))
+        self.device = torch.device("cpu")
         self.evaluate_inputs = evaluate_inputs
+        self.query_id_to_idx = {1: 0}
+        self.candidate_id_to_idx = {10: 0, 20: 1, 30: 2}
+        self.idx_to_candidate_id = [10, 20, 30]
         self.ensure_fitted_calls = 0
         self.make_loader_calls: list[dict[str, object]] = []
-        self.evaluate_loader_calls: list[tuple[object, str]] = []
-        self.recall_calls: list[int] = []
-        self.popularity_recall_calls: list[int] = []
-        self.last_input = None
+        self.eval_calls = 0
+        # user idx 0 → [1, 0], item indices 0,1,2 → [1,0],[0,1],[0,1]
+        self._user_embeddings_by_idx = {0: torch.tensor([1.0, 0.0])}
+        self._item_embeddings_by_idx = {
+            0: torch.tensor([1.0, 0.0]),
+            1: torch.tensor([0.0, 1.0]),
+            2: torch.tensor([0.0, 1.0]),
+        }
+
+    def eval(self) -> object:
+        self.eval_calls += 1
+        return self
 
     def ensure_fitted(self) -> None:
         self.ensure_fitted_calls += 1
 
     def build_evaluate_inputs(self, X_test: pd.DataFrame) -> EvaluateInputs:
-        self.last_input = X_test
         return self.evaluate_inputs
 
-    def make_loader(self, *, positive_df, interactions_df, shuffle) -> object:
+    def make_loader(self, *, positive_df, interactions_df, shuffle) -> list:
         self.make_loader_calls.append(
             {"positive_df": positive_df, "interactions_df": interactions_df, "shuffle": shuffle}
         )
-        return {"loader": "ok"}
-
-    def evaluate_loader(self, loader: object, prefix: str = "valid") -> dict[str, float]:
-        self.evaluate_loader_calls.append((loader, prefix))
-        return {"test_loss": 0.25}
+        return []  # empty loader → evaluate_loader yields test_loss=0.0
 
     def resolve_eval_top_ks(self, top_k: int | None) -> list[int]:
         return [5, 10] if top_k is None else [5, int(top_k)]
 
-    def recall_at_k(self, evaluation_df: pd.DataFrame, top_k: int) -> float:
-        self.recall_calls.append(top_k)
-        return {5: 0.4, 10: 0.6, 3: 0.2}[top_k]
+    def score_pairs(self, user_input: torch.Tensor, item_input: torch.Tensor) -> torch.Tensor:
+        return torch.zeros(user_input.size(0))
 
-    def popularity_recall_at_k(self, evaluation_df: pd.DataFrame, top_k: int) -> float:
-        self.popularity_recall_calls.append(top_k)
-        return {5: 0.1, 10: 0.3, 3: 0.05}[top_k]
+    def encode_queries(self, user_input: torch.Tensor) -> torch.Tensor:
+        return torch.stack([self._user_embeddings_by_idx[int(idx)] for idx in user_input])
 
-    def get_eval_user_ids(self, evaluation_df: pd.DataFrame) -> list[int]:
-        return [1, 2]
+    def encode_candidates(self, item_input: torch.Tensor) -> torch.Tensor:
+        return torch.stack([self._item_embeddings_by_idx[int(idx)] for idx in item_input])
+
+    def get_seen_candidates_by_query(self) -> dict[int, set[int]]:
+        return {}
+
+    def get_train_positive_item_ranking(self) -> list[int]:
+        return []
 
 
 @pytest.fixture
@@ -80,21 +94,21 @@ def test_evaluate_aggregates_metrics_and_uses_default_top_k(evaluator_setup):
     assert model.ensure_fitted_calls == 1
     assert len(model.make_loader_calls) == 1
     assert not model.make_loader_calls[0]["shuffle"]
-    assert model.evaluate_loader_calls == [({"loader": "ok"}, "test")]
-    assert model.recall_calls == [5, 10]
-    assert model.popularity_recall_calls == [5, 10]
-    assert metrics["test_loss"] == 0.25
-    assert metrics["recall_at_5"] == 0.4
-    assert metrics["recall_at_10"] == 0.6
-    assert metrics["recall_at_k"] == 0.6
-    assert metrics["popularity_recall_at_k"] == 0.3
+    # evaluate_loader, recall_at_k, popularity_recall_at_k now live on TwoTowerEvaluator
+    assert metrics["test_loss"] == 0.0
+    assert metrics["recall_at_5"] == 1.0
+    assert metrics["recall_at_10"] == 1.0
+    assert metrics["recall_at_k"] == 1.0
+    assert metrics["popularity_recall_at_5"] == 0.0
+    assert metrics["popularity_recall_at_10"] == 0.0
+    assert metrics["popularity_recall_at_k"] == 0.0
     assert metrics["test_input_rows"] == 3.0
     assert metrics["test_rows_used"] == 2.0
     assert metrics["test_rows_filtered"] == 1.0
     assert metrics["test_unknown_user_rows"] == 1.0
     assert metrics["test_unknown_item_rows"] == 0.0
     assert metrics["test_positive_pairs_used_for_loss"] == 1.0
-    assert metrics["test_eval_user_count"] == 2.0
+    assert metrics["test_eval_user_count"] == 1.0
 
 
 def test_evaluate_respects_top_k_override(evaluator_setup):
@@ -103,12 +117,10 @@ def test_evaluate_respects_top_k_override(evaluator_setup):
 
     metrics = evaluator.evaluate(model, test_input_df, top_k=3)
 
-    assert model.recall_calls == [5, 3]
-    assert model.popularity_recall_calls == [5, 3]
-    assert metrics["recall_at_3"] == 0.2
-    assert metrics["recall_at_k"] == 0.2
-    assert metrics["popularity_recall_at_3"] == 0.05
-    assert metrics["popularity_recall_at_k"] == 0.05
+    assert metrics["recall_at_3"] == 1.0
+    assert metrics["recall_at_k"] == 1.0
+    assert metrics["popularity_recall_at_3"] == 0.0
+    assert metrics["popularity_recall_at_k"] == 0.0
 
 
 def test_evaluate_raises_for_empty_prepared_test_set(evaluator_setup):
@@ -124,3 +136,64 @@ def test_evaluate_raises_for_empty_prepared_test_set(evaluator_setup):
 
     with pytest.raises(RuntimeError, match="Evaluation dataset is empty"):
         evaluator.evaluate(empty_model, test_input_df)
+
+
+# ── Tests for the methods that moved from TwoTower to TwoTowerEvaluator ──────
+
+
+def test_get_eval_user_ids_returns_users_with_positive_labels(evaluator_setup):
+    _, evaluate_inputs, evaluator = evaluator_setup
+    model = StubEvaluableModel(evaluate_inputs)
+    df = pd.DataFrame({
+        "query_id": [1, 2, 3, 1],
+        "candidate_id": [10, 20, 30, 20],
+        "label": [1.0, 0.0, 1.0, 1.0],
+    })
+
+    user_ids = evaluator.get_eval_user_ids(model, df)
+
+    assert set(user_ids) == {1, 3}
+
+
+def test_get_eval_user_ids_returns_empty_for_no_positives(evaluator_setup):
+    _, evaluate_inputs, evaluator = evaluator_setup
+    model = StubEvaluableModel(evaluate_inputs)
+    df = pd.DataFrame({"query_id": [1, 2], "candidate_id": [10, 20], "label": [0.0, 0.0]})
+
+    assert evaluator.get_eval_user_ids(model, df) == []
+
+
+def test_evaluate_loader_returns_zero_loss_for_empty_loader(evaluator_setup):
+    _, evaluate_inputs, evaluator = evaluator_setup
+    model = StubEvaluableModel(evaluate_inputs)
+
+    metrics = evaluator.evaluate_loader(model, [], prefix="valid")
+
+    assert metrics == {"valid_loss": 0.0}
+
+
+def test_recall_at_k_returns_one_for_item_at_top(evaluator_setup):
+    _, evaluate_inputs, evaluator = evaluator_setup
+    model = StubEvaluableModel(evaluate_inputs)
+    # prepared_test_df has query_id=1 with label=1.0 and candidate_id=10
+    # model.encode_queries([0]) → [[1,0]], encode_candidates([0,1,2]) → [[1,0],[0,1],[0,1]]
+    # user 1 scores: [1.0, 0.0, 0.0] → item 10 is top-1 → recall = 1.0
+    recall = evaluator.recall_at_k(model, evaluate_inputs.prepared_test_df, top_k=1)
+
+    assert recall == 1.0
+
+
+def test_recall_at_k_returns_zero_for_no_positive_users(evaluator_setup):
+    _, evaluate_inputs, evaluator = evaluator_setup
+    model = StubEvaluableModel(evaluate_inputs)
+    df = pd.DataFrame({"query_id": [1], "candidate_id": [10], "label": [0.0]})
+
+    assert evaluator.recall_at_k(model, df, top_k=5) == 0.0
+
+
+def test_popularity_recall_at_k_returns_zero_for_empty_ranking(evaluator_setup):
+    _, evaluate_inputs, evaluator = evaluator_setup
+    model = StubEvaluableModel(evaluate_inputs)
+    # model.get_train_positive_item_ranking() → [] → popularity_recall = 0.0
+
+    assert evaluator.popularity_recall_at_k(model, evaluate_inputs.prepared_test_df, top_k=5) == 0.0
