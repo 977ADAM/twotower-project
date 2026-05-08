@@ -6,8 +6,6 @@ from typing import Any
 
 import pandas as pd
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
 from rich.console import Console
 from torch.utils.data import DataLoader
 
@@ -39,9 +37,7 @@ from twotower._src.training.fit import (
     NegativeSampling,
     TwoTowerTrainer,
     build_pairwise_loader,
-    compute_bpr_loss,
 )
-from twotower._src.metrics import mean_recall, user_recall
 from twotower._src.utils.traceback_utils import filter_traceback
 
 console = Console()
@@ -90,8 +86,6 @@ class TwoTower(TwoTowerBase):
         self.valid_df: pd.DataFrame | None = None
         self._seen_candidates_by_query: dict[int, set[int]] = {}
         self._train_positive_candidate_ids_by_popularity: list[int] = []
-        self._cached_all_item_embeddings: torch.Tensor | None = None
-        self._cached_all_item_ids: list[int] | None = None
         self._query_feature_tables: FeatureTables | None = None
         self._candidate_feature_tables: FeatureTables | None = None
         self._query_feature_metadata: FeatureMetadata = FeatureMetadata.empty()
@@ -365,32 +359,6 @@ class TwoTower(TwoTowerBase):
             seed=self.config.seed + 2,
         )
 
-    def evaluate_loader(self, loader: DataLoader[Any], prefix: str = "valid") -> dict[str, float]:
-        self.eval()
-        criterion = nn.LogSigmoid()
-        loss_sum = 0.0
-        total = 0
-
-        with torch.no_grad():
-            for user_batch, pos_item_batch, neg_item_batch in loader:
-                user_batch = user_batch.to(self.device)
-                pos_item_batch = pos_item_batch.to(self.device)
-                neg_item_batch = neg_item_batch.to(self.device)
-
-                positive_scores = self.score_pairs(user_batch, pos_item_batch)
-                negative_scores = self.score_pairs(user_batch, neg_item_batch)
-                loss = compute_bpr_loss(
-                    positive_scores=positive_scores,
-                    negative_scores=negative_scores,
-                    criterion=criterion,
-                )
-
-                batch_size = user_batch.size(0)
-                loss_sum += loss.item() * batch_size
-                total += batch_size
-
-        return {f"{prefix}_loss": loss_sum / max(total, 1)}
-
     def resolve_eval_top_ks(self, top_k: int | None) -> list[int]:
         requested_top_ks = list(self.config.eval_top_ks)
         requested_top_ks.append(top_k or self.config.top_k)
@@ -404,70 +372,8 @@ class TwoTower(TwoTowerBase):
                 resolved_top_ks.append(candidate_value)
         return resolved_top_ks
 
-    def get_eval_user_ids(self, evaluation_df: pd.DataFrame) -> list[int]:
-        positive_df = evaluation_df[evaluation_df["label"] == 1.0]
-        if positive_df.empty:
-            return []
-        return list(
-            positive_df["query_id"]
-            .drop_duplicates()
-            .head(self.config.max_eval_users)
-            .astype(int)
-        )
-
     def recall_at_k(self, evaluation_df: pd.DataFrame, top_k: int, exclude_seen: bool = True) -> float:
-        candidate_user_ids = self.get_eval_user_ids(evaluation_df)
-        if not candidate_user_ids:
-            return 0.0
-
-        positive_df = evaluation_df[evaluation_df["label"] == 1.0]
-        recalls = []
-        seen_candidates_by_query = self.get_seen_candidates_by_query() if exclude_seen else {}
-        item_embeddings, item_ids = self.get_candidate_item_embeddings(list(self.idx_to_candidate_id))
-        for query_id in candidate_user_ids:
-            actual_items = set(positive_df.loc[positive_df["query_id"] == query_id, "candidate_id"].astype(int))
-            predicted_items = self._predictor.predict_top_k_item_ids_for_user(
-                self,
-                query_id=query_id,
-                item_embeddings=item_embeddings,
-                item_ids=item_ids,
-                top_k=top_k,
-                excluded_item_ids=seen_candidates_by_query.get(query_id, set()),
-            )
-            if actual_items:
-                recalls.append(user_recall(actual_items, predicted_items))
-
-        return mean_recall(recalls)
-
-    def popularity_recall_at_k(self, evaluation_df: pd.DataFrame, top_k: int) -> float:
-        candidate_user_ids = self.get_eval_user_ids(evaluation_df)
-        if not candidate_user_ids:
-            return 0.0
-
-        popularity_ranking = self.get_train_positive_item_ranking()
-        if not popularity_ranking:
-            return 0.0
-
-        positive_df = evaluation_df[evaluation_df["label"] == 1.0]
-        recalls = []
-        seen_candidates_by_query = self.get_seen_candidates_by_query()
-        for query_id in candidate_user_ids:
-            actual_items = set(positive_df.loc[positive_df["query_id"] == query_id, "candidate_id"].astype(int))
-            if not actual_items:
-                continue
-
-            excluded_item_ids = seen_candidates_by_query.get(query_id, set())
-            predicted_items: list[int] = []
-            for candidate_id in popularity_ranking:
-                if candidate_id in excluded_item_ids:
-                    continue
-                predicted_items.append(candidate_id)
-                if len(predicted_items) == top_k:
-                    break
-
-            recalls.append(user_recall(actual_items, set(predicted_items)))
-
-        return mean_recall(recalls)
+        return self._evaluator.recall_at_k(self, evaluation_df, top_k, exclude_seen=exclude_seen)
 
     def build_towers(self, num_users: int, num_items: int) -> None:
         self.query_tower = Tower(
@@ -501,37 +407,6 @@ class TwoTower(TwoTowerBase):
         self._refresh_evaluation_reference_data()
         return self._train_positive_candidate_ids_by_popularity
 
-    def get_candidate_item_embeddings(
-        self,
-        item_ids: list[int],
-    ) -> tuple[torch.Tensor, list[int]]:
-        all_item_embeddings, all_item_ids = self._build_candidate_item_embeddings()
-        if item_ids == all_item_ids:
-            return all_item_embeddings, all_item_ids
-
-        candidate_positions = [
-            self.candidate_id_to_idx[candidate_id]
-            for candidate_id in item_ids
-            if candidate_id in self.candidate_id_to_idx
-        ]
-        if not candidate_positions:
-            return all_item_embeddings[:0], []
-
-        return all_item_embeddings[candidate_positions], item_ids
-
-    def get_user_embedding(self, query_id: int) -> torch.Tensor:
-        if query_id not in self.query_id_to_idx:
-            raise KeyError(f"Unknown query_id: {query_id}")
-
-        user_index = torch.tensor(
-            [self.query_id_to_idx[query_id]],
-            dtype=torch.long,
-            device=self.device,
-        )
-        with torch.no_grad():
-            user_embedding: torch.Tensor = self.encode_queries(user_index)
-        return user_embedding.squeeze(0)
-
     def get_query_feature_metadata_dict(self) -> dict[str, object]:
         return self._query_feature_metadata.to_dict()
 
@@ -539,8 +414,7 @@ class TwoTower(TwoTowerBase):
         return self._candidate_feature_metadata.to_dict()
 
     def invalidate_item_embedding_cache(self) -> None:
-        self._cached_all_item_embeddings = None
-        self._cached_all_item_ids = None
+        self._predictor.invalidate_cache()
 
     @staticmethod
     def resolve_device(device: str | None) -> torch.device:
@@ -643,19 +517,3 @@ class TwoTower(TwoTowerBase):
         seen, popularity = build_evaluation_reference_data(self.train_df, None)
         self._seen_candidates_by_query = seen
         self._train_positive_candidate_ids_by_popularity = popularity
-
-    def _build_candidate_item_embeddings(self) -> tuple[torch.Tensor, list[int]]:
-        if self._cached_all_item_embeddings is None or self._cached_all_item_ids is None:
-            item_ids = list(self.idx_to_candidate_id)
-            item_indices = torch.tensor(
-                [self.candidate_id_to_idx[candidate_id] for candidate_id in item_ids],
-                dtype=torch.long,
-                device=self.device,
-            )
-            assert self.candidate_tower is not None
-            with torch.no_grad():
-                item_embeddings = self.candidate_tower(item_indices)
-                item_embeddings = F.normalize(item_embeddings, dim=-1)
-            self._cached_all_item_embeddings = item_embeddings
-            self._cached_all_item_ids = item_ids
-        return self._cached_all_item_embeddings, self._cached_all_item_ids
