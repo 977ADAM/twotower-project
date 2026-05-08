@@ -11,6 +11,7 @@ from rich.console import Console
 from torch.utils.data import DataLoader, Dataset
 
 from twotower._src.config import _Config
+from twotower._src.training.progress import EpochProgress
 
 console = Console()
 
@@ -306,51 +307,54 @@ class TwoTowerTrainer:
             )
         )
 
-        for epoch in range(1, self.config.epochs + 1):
-            train_metrics = self.train_epoch(
-                model=model,
-                train_loader=train_loader,
-                optimizer=optimizer,
-                criterion=criterion,
-                negative_sampling=negative_sampling,
-            )
-            valid_metrics = self.validate(model=model, valid_loader=valid_loader, criterion=criterion)
-            recall_metrics = self.compute_recall_metrics(model, inputs) if need_recall else {}
-            epoch_metrics = self.merge_epoch_metrics(
-                epoch=epoch,
-                train_metrics=train_metrics,
-                valid_metrics=valid_metrics,
-                recall_metrics=recall_metrics,
-            )
-            state.epoch = epoch
-            state.history.append(epoch_metrics)
-
-            if early_stopping is not None:
-                current_value = epoch_metrics.get(early_stopping.metric)
-                if current_value is None:
-                    raise ValueError(
-                        f"Early stopping metric '{early_stopping.metric}' not found in epoch metrics. "
-                        f"Available: {list(epoch_metrics.keys())}"
-                    )
-
-                if best_metric_value is None or early_stopping.is_better(current_value, best_metric_value):
-                    best_metric_value = current_value
-                    best_state_dict = {
-                        name: tensor.detach().cpu().clone()
-                        for name, tensor in model.state_dict().items()
-                    }
-                    epochs_without_improvement = 0
-                else:
-                    epochs_without_improvement += 1
-
-            self._print_epoch(epoch, epoch_metrics)
-
-            if early_stopping is not None and epochs_without_improvement >= early_stopping.patience:
-                console.print(
-                    f"Early stopping at epoch {epoch} "
-                    f"(no improvement in {early_stopping.metric} for {early_stopping.patience} epochs)"
+        with EpochProgress() as progress:
+            for epoch in range(1, self.config.epochs + 1):
+                progress.start_epoch(epoch, self.config.epochs, num_batches=len(train_loader))
+                train_metrics = self.train_epoch(
+                    model=model,
+                    train_loader=train_loader,
+                    optimizer=optimizer,
+                    criterion=criterion,
+                    negative_sampling=negative_sampling,
+                    progress=progress,
                 )
-                break
+                valid_metrics = self.validate(model=model, valid_loader=valid_loader, criterion=criterion)
+                recall_metrics = self.compute_recall_metrics(model, inputs) if need_recall else {}
+                epoch_metrics = self.merge_epoch_metrics(
+                    epoch=epoch,
+                    train_metrics=train_metrics,
+                    valid_metrics=valid_metrics,
+                    recall_metrics=recall_metrics,
+                )
+                state.epoch = epoch
+                state.history.append(epoch_metrics)
+
+                if early_stopping is not None:
+                    current_value = epoch_metrics.get(early_stopping.metric)
+                    if current_value is None:
+                        raise ValueError(
+                            f"Early stopping metric '{early_stopping.metric}' not found in epoch metrics. "
+                            f"Available: {list(epoch_metrics.keys())}"
+                        )
+
+                    if best_metric_value is None or early_stopping.is_better(current_value, best_metric_value):
+                        best_metric_value = current_value
+                        best_state_dict = {
+                            name: tensor.detach().cpu().clone()
+                            for name, tensor in model.state_dict().items()
+                        }
+                        epochs_without_improvement = 0
+                    else:
+                        epochs_without_improvement += 1
+
+                progress.finish_epoch(epoch, self.config.epochs, epoch_metrics)
+
+                if early_stopping is not None and epochs_without_improvement >= early_stopping.patience:
+                    console.print(
+                        f"Early stopping at epoch {epoch} "
+                        f"(no improvement in {early_stopping.metric} for {early_stopping.patience} epochs)"
+                    )
+                    break
 
         if best_state_dict is not None:
             model.load_state_dict(best_state_dict)
@@ -416,6 +420,7 @@ class TwoTowerTrainer:
         optimizer: torch.optim.Optimizer,
         criterion: nn.Module,
         negative_sampling: NegativeSampling,
+        progress: EpochProgress | None = None,
     ) -> dict[str, float]:
         """Run one training epoch and return train metrics."""
         model.train()
@@ -450,6 +455,9 @@ class TwoTowerTrainer:
             batch_size = user_batch.size(0)
             loss_sum += loss.item() * batch_size
             total_examples += batch_size
+
+            if progress is not None:
+                progress.advance()
 
         return {
             "train_loss": loss_sum / max(total_examples, 1),
@@ -523,18 +531,3 @@ class TwoTowerTrainer:
             **recall_metrics,
         }
 
-    def _print_epoch(self, epoch: int, metrics: dict[str, float]) -> None:
-        """Print a summary line for the current epoch."""
-        recall_parts = " ".join(
-            f"{key}={value:.4f}"
-            for key, value in metrics.items()
-            if key.startswith("recall_at_")
-        )
-        recall_str = f" {recall_parts}" if recall_parts else ""
-        valid_str = f" valid_loss={metrics['valid_loss']:.4f}" if "valid_loss" in metrics else ""
-        console.print(
-            f"Epoch {epoch}/{self.config.epochs} "
-            f"train_loss={metrics['train_loss']:.4f}"
-            f"{valid_str}"
-            f"{recall_str}"
-        )
