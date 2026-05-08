@@ -27,6 +27,7 @@ def main() -> None:
         observed_ratio=0.8,
         learning_rate=1e-3,
         patience=5,
+        epochs=5,
         early_stopping_metric="recall_at_50",
         eval_top_ks=(50,),
         top_k=50,
