@@ -12,6 +12,7 @@ class _Predictable(Protocol):
     """Minimal model contract required by the prediction module."""
 
     config: _Config
+    device: torch.device
     query_id_to_idx: dict[int, int]
     candidate_id_to_idx: dict[int, int]
     idx_to_query_id: list[int]
@@ -19,24 +20,18 @@ class _Predictable(Protocol):
     query_col: str
     candidate_col: str
 
-    def eval(self) -> object:
-        ...
-
-    def get_candidate_item_embeddings(
-        self,
-        item_ids: list[int],
-    ) -> tuple[torch.Tensor, list[int]]:
-        ...
-
-    def get_user_embedding(self, query_id: int) -> torch.Tensor:
-        ...
-
-    def get_seen_candidates_by_query(self) -> dict[int, set[int]]:
-        ...
+    def eval(self) -> object: ...
+    def encode_queries(self, user_input: torch.Tensor) -> torch.Tensor: ...
+    def encode_candidates(self, item_input: torch.Tensor) -> torch.Tensor: ...
+    def get_seen_candidates_by_query(self) -> dict[int, set[int]]: ...
 
 
 class TwoTowerPredictor:
     """Generate top-k recommendations from a minimal prediction interface."""
+
+    def __init__(self) -> None:
+        self._cached_all_item_embeddings: torch.Tensor | None = None
+        self._cached_all_item_ids: list[int] | None = None
 
     def predict(
         self,
@@ -61,7 +56,7 @@ class TwoTowerPredictor:
             return empty
 
         model.eval()
-        item_embeddings, candidate_item_ids = model.get_candidate_item_embeddings(candidate_item_ids)
+        item_embeddings, candidate_item_ids = self.get_candidate_item_embeddings(model, candidate_item_ids)
         seen_candidates_by_query = model.get_seen_candidates_by_query() if exclude_seen else {}
 
         rows: list[dict[str, object]] = []
@@ -147,7 +142,7 @@ class TwoTowerPredictor:
         if not candidate_positions:
             return []
 
-        user_embedding = model.get_user_embedding(query_id)
+        user_embedding = self.get_user_embedding(model, query_id)
         candidate_embeddings = item_embeddings[candidate_positions]
         scores = torch.matmul(candidate_embeddings, user_embedding)
 
@@ -186,6 +181,56 @@ class TwoTowerPredictor:
             )
         }
 
+    def get_candidate_item_embeddings(
+        self,
+        model: _Predictable,
+        item_ids: list[int],
+    ) -> tuple[torch.Tensor, list[int]]:
+        """Return embeddings for `item_ids`, using the all-items cache for the full catalogue."""
+        all_item_embeddings, all_item_ids = self._build_candidate_item_embeddings(model)
+        if item_ids == all_item_ids:
+            return all_item_embeddings, all_item_ids
+
+        candidate_positions = [
+            model.candidate_id_to_idx[candidate_id]
+            for candidate_id in item_ids
+            if candidate_id in model.candidate_id_to_idx
+        ]
+        if not candidate_positions:
+            return all_item_embeddings[:0], []
+
+        return all_item_embeddings[candidate_positions], item_ids
+
+    def get_user_embedding(self, model: _Predictable, query_id: int) -> torch.Tensor:
+        if query_id not in model.query_id_to_idx:
+            raise KeyError(f"Unknown query_id: {query_id}")
+
+        user_index = torch.tensor(
+            [model.query_id_to_idx[query_id]],
+            dtype=torch.long,
+            device=model.device,
+        )
+        with torch.no_grad():
+            return model.encode_queries(user_index).squeeze(0)
+
+    def invalidate_cache(self) -> None:
+        self._cached_all_item_embeddings = None
+        self._cached_all_item_ids = None
+
+    def _build_candidate_item_embeddings(self, model: _Predictable) -> tuple[torch.Tensor, list[int]]:
+        if self._cached_all_item_embeddings is None or self._cached_all_item_ids is None:
+            item_ids = list(model.idx_to_candidate_id)
+            item_indices = torch.tensor(
+                [model.candidate_id_to_idx[candidate_id] for candidate_id in item_ids],
+                dtype=torch.long,
+                device=model.device,
+            )
+            with torch.no_grad():
+                item_embeddings = model.encode_candidates(item_indices)
+            self._cached_all_item_embeddings = item_embeddings
+            self._cached_all_item_ids = item_ids
+        return self._cached_all_item_embeddings, self._cached_all_item_ids
+
     @staticmethod
     def _deduplicate_ids(entity_ids: Sequence[int]) -> list[int]:
         deduplicated_ids: list[int] = []
@@ -197,4 +242,3 @@ class TwoTowerPredictor:
             seen_ids.add(normalized_id)
             deduplicated_ids.append(normalized_id)
         return deduplicated_ids
-
