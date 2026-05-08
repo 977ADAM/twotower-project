@@ -7,13 +7,10 @@ from typing import Any, Iterator, Protocol
 import pandas as pd
 import torch
 import torch.nn as nn
-from rich.console import Console
 from torch.utils.data import DataLoader, Dataset
 
 from twotower._src.config import _Config
 from twotower._src.training.progress import EpochProgress, EpochSummary
-
-console = Console()
 
 
 def compute_bpr_loss(
