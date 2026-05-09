@@ -320,23 +320,28 @@ _HISTORY_WITH_VALID = [
 
 def test_plot_calls_show_when_no_path():
     mock_plt, mock_fig, mock_ax = _make_mocks()
-    with patch.dict(sys.modules, {"matplotlib": MagicMock(), "matplotlib.pyplot": mock_plt}):
+    mock_ticker = MagicMock()
+    with patch.dict(sys.modules, {"matplotlib": MagicMock(), "matplotlib.pyplot": mock_plt, "matplotlib.ticker": mock_ticker}):
         FitResult(history=_HISTORY_NO_VALID).plot()
     mock_plt.show.assert_called_once()
     mock_fig.savefig.assert_not_called()
+    mock_plt.close.assert_called_once_with(mock_fig)
 
 
 def test_plot_saves_file_when_path_given():
     mock_plt, mock_fig, mock_ax = _make_mocks()
-    with patch.dict(sys.modules, {"matplotlib": MagicMock(), "matplotlib.pyplot": mock_plt}):
+    mock_ticker = MagicMock()
+    with patch.dict(sys.modules, {"matplotlib": MagicMock(), "matplotlib.pyplot": mock_plt, "matplotlib.ticker": mock_ticker}):
         FitResult(history=_HISTORY_NO_VALID).plot("loss.png")
     mock_fig.savefig.assert_called_once_with("loss.png")
     mock_plt.show.assert_not_called()
+    mock_plt.close.assert_called_once_with(mock_fig)
 
 
 def test_plot_omits_valid_loss_when_absent():
     mock_plt, mock_fig, mock_ax = _make_mocks()
-    with patch.dict(sys.modules, {"matplotlib": MagicMock(), "matplotlib.pyplot": mock_plt}):
+    mock_ticker = MagicMock()
+    with patch.dict(sys.modules, {"matplotlib": MagicMock(), "matplotlib.pyplot": mock_plt, "matplotlib.ticker": mock_ticker}):
         FitResult(history=_HISTORY_NO_VALID).plot()
     assert mock_ax.plot.call_count == 1
     mock_ax.legend.assert_not_called()
@@ -344,7 +349,8 @@ def test_plot_omits_valid_loss_when_absent():
 
 def test_plot_draws_valid_loss_when_present():
     mock_plt, mock_fig, mock_ax = _make_mocks()
-    with patch.dict(sys.modules, {"matplotlib": MagicMock(), "matplotlib.pyplot": mock_plt}):
+    mock_ticker = MagicMock()
+    with patch.dict(sys.modules, {"matplotlib": MagicMock(), "matplotlib.pyplot": mock_plt, "matplotlib.ticker": mock_ticker}):
         FitResult(history=_HISTORY_WITH_VALID).plot()
     assert mock_ax.plot.call_count == 2
     mock_ax.legend.assert_called_once()

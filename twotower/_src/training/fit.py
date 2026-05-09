@@ -93,14 +93,15 @@ class FitResult:
     history: list[dict[str, float]]
 
     def plot(self, path: str | Path | None = None) -> None:
+        if not self.history:
+            raise ValueError("Cannot plot: training history is empty.")
         try:
             plt = importlib.import_module('matplotlib.pyplot')
+            MaxNLocator = importlib.import_module('matplotlib.ticker').MaxNLocator
         except ImportError:
             raise ImportError(
                 "matplotlib is required for plotting. Install it with: pip install matplotlib"
             )
-        if not self.history:
-            raise ValueError("Cannot plot: training history is empty.")
 
         epochs = [int(r["epoch"]) for r in self.history]
         train_losses = [r["train_loss"] for r in self.history]
@@ -115,13 +116,15 @@ class FitResult:
         ax.set_xlabel("Epoch")
         ax.set_ylabel("Loss")
         ax.set_title("Training Loss")
-        ax.xaxis.get_major_locator().set_params(integer=True)
+        ax.xaxis.set_major_locator(MaxNLocator(integer=True))
 
-        if path is None:
-            plt.show()
-        else:
-            fig.savefig(path)
-        plt.close(fig)
+        try:
+            if path is None:
+                plt.show()
+            else:
+                fig.savefig(path)
+        finally:
+            plt.close(fig)
 
 
 class PairwiseInteractionsDataset(Dataset[tuple[torch.Tensor, torch.Tensor, torch.Tensor]]):
