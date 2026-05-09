@@ -16,7 +16,7 @@ def main() -> None:
     config = Config()
     movies_df, train_df, valid_df, test_df = load_training_frames(config)
 
-    model = TwoTower(tower_dims=(128, 64), dropout=0.1, hidden_dim=64)
+    model = TwoTower(tower_dims=(128, 64, 32), dropout=0.1, hidden_dim=64)
     result = model.fit(
         train_df,
         validation_data=valid_df,
@@ -27,7 +27,7 @@ def main() -> None:
         observed_ratio=0.8,
         learning_rate=1e-3,
         patience=5,
-        epochs=5,
+        epochs=50,
         early_stopping_metric="recall_at_50",
         eval_top_ks=(50,),
         top_k=50,

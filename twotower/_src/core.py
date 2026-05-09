@@ -65,7 +65,7 @@ class TwoTower(TwoTowerBase):
         candidate_embedding_dim: int = 64,
         side_feature_embedding_dim: int = 8,
         hidden_dim: int = 64,
-        tower_dims: tuple[int, ...] = (128, 64),
+        tower_dims: tuple[int, ...] = (128, 64, 32),
         dropout: float = 0.0,
     ):
         super().__init__()
