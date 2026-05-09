@@ -18,3 +18,4 @@ wheels/
 # model artifacts
 *.pth
 site/
+.superpowers/
