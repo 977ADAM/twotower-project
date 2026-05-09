@@ -5,18 +5,13 @@ from typing import Protocol, Sequence
 import pandas as pd
 import torch
 
-from twotower._src.config import _Config
+from twotower._src.protocols import _HasConfig, _HasIDMappings
 
 
-class _Predictable(Protocol):
+class _Predictable(_HasConfig, _HasIDMappings, Protocol):
     """Minimal model contract required by the prediction module."""
 
-    config: _Config
     device: torch.device
-    query_id_to_idx: dict[int, int]
-    candidate_id_to_idx: dict[int, int]
-    idx_to_query_id: list[int]
-    idx_to_candidate_id: list[int]
     query_col: str
     candidate_col: str
 
