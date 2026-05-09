@@ -374,6 +374,7 @@ class TwoTower(TwoTowerBase):
         return resolved_top_ks
 
     def recall_at_k(self, evaluation_df: pd.DataFrame, top_k: int, exclude_seen: bool = True) -> float:
+        self.ensure_fitted()
         item_embeddings, _ = self._predictor.get_candidate_item_embeddings(
             self, list(self.idx_to_candidate_id)
         )
