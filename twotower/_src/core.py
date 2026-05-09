@@ -374,7 +374,13 @@ class TwoTower(TwoTowerBase):
         return resolved_top_ks
 
     def recall_at_k(self, evaluation_df: pd.DataFrame, top_k: int, exclude_seen: bool = True) -> float:
-        return self._evaluator.recall_at_k(self, evaluation_df, top_k, exclude_seen=exclude_seen)
+        item_embeddings, _ = self._predictor.get_candidate_item_embeddings(
+            self, list(self.idx_to_candidate_id)
+        )
+        return self._evaluator.recall_at_k(
+            self, evaluation_df, top_k, exclude_seen=exclude_seen,
+            item_embeddings=item_embeddings,
+        )
 
     def build_towers(self, num_users: int, num_items: int) -> None:
         self.query_tower = Tower(
