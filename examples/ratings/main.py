@@ -32,6 +32,7 @@ def main() -> None:
         eval_top_ks=(50,),
         top_k=50,
     )
+    
     console.print({"history_tail": history[-3:]})
 
     metrics = model.evaluate(test_df, top_k=config.top_k)
