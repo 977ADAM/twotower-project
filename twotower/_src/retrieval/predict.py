@@ -8,7 +8,7 @@ import torch
 from twotower._src.protocols import _HasConfig, _HasIDMappings
 
 
-class _Predictable(_HasConfig, _HasIDMappings, Protocol):
+class _Predictable(_HasIDMappings, _HasConfig, Protocol):
     """Minimal model contract required by the prediction module."""
 
     device: torch.device
