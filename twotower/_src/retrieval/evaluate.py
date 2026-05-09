@@ -8,8 +8,8 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 
-from twotower._src.config import _Config
 from twotower._src.metrics import mean_recall, user_recall
+from twotower._src.protocols import _HasConfig, _HasIDMappings
 
 
 @dataclass(slots=True)
@@ -24,14 +24,10 @@ class EvaluateInputs:
     unknown_item_row_count: int
 
 
-class _Evaluable(Protocol):
+class _Evaluable(_HasIDMappings, _HasConfig, Protocol):
     """Minimal model contract required by the evaluation module."""
 
-    config: _Config
     device: torch.device
-    query_id_to_idx: dict[int, int]
-    candidate_id_to_idx: dict[int, int]
-    idx_to_candidate_id: list[int]
 
     def eval(self) -> object: ...
     def ensure_fitted(self) -> None: ...
@@ -154,6 +150,7 @@ class TwoTowerEvaluator:
         evaluation_df: pd.DataFrame,
         top_k: int,
         exclude_seen: bool = True,
+        item_embeddings: torch.Tensor | None = None,
     ) -> float:
         candidate_user_ids = self.get_eval_user_ids(model, evaluation_df)
         if not candidate_user_ids:
@@ -163,13 +160,14 @@ class TwoTowerEvaluator:
         seen_candidates_by_query = model.get_seen_candidates_by_query() if exclude_seen else {}
 
         item_ids = list(model.idx_to_candidate_id)
-        item_indices = torch.tensor(
-            [model.candidate_id_to_idx[cid] for cid in item_ids],
-            dtype=torch.long,
-            device=model.device,
-        )
-        with torch.no_grad():
-            item_embeddings = model.encode_candidates(item_indices)
+        if item_embeddings is None:
+            item_indices = torch.tensor(
+                [model.candidate_id_to_idx[cid] for cid in item_ids],
+                dtype=torch.long,
+                device=model.device,
+            )
+            with torch.no_grad():
+                item_embeddings = model.encode_candidates(item_indices)
 
         recalls = []
         for query_id in candidate_user_ids:

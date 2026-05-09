@@ -213,3 +213,22 @@ def test_popularity_recall_at_k_returns_correct_score_for_non_empty_ranking(eval
     recall = evaluator.popularity_recall_at_k(model, evaluate_inputs.prepared_test_df, top_k=1)
 
     assert recall == 1.0
+
+
+def test_recall_at_k_uses_provided_item_embeddings_without_calling_encode_candidates(evaluator_setup):
+    from unittest.mock import patch
+    _, evaluate_inputs, evaluator = evaluator_setup
+    model = StubEvaluableModel(evaluate_inputs)
+    # items in idx_to_candidate_id order: [10, 20, 30] → indices [0, 1, 2]
+    item_embeddings = torch.stack([
+        model._item_embeddings_by_idx[0],
+        model._item_embeddings_by_idx[1],
+        model._item_embeddings_by_idx[2],
+    ])
+    with patch.object(model, "encode_candidates", wraps=model.encode_candidates) as mock_encode:
+        recall = evaluator.recall_at_k(
+            model, evaluate_inputs.prepared_test_df, top_k=1,
+            item_embeddings=item_embeddings,
+        )
+    assert recall == 1.0
+    mock_encode.assert_not_called()
