@@ -16,6 +16,7 @@ class StubEvaluableModel:
         self.device = torch.device("cpu")
         self.evaluate_inputs = evaluate_inputs
         self.query_id_to_idx = {1: 0}
+        self.idx_to_query_id = [1]
         self.candidate_id_to_idx = {10: 0, 20: 1, 30: 2}
         self.idx_to_candidate_id = [10, 20, 30]
         self.ensure_fitted_calls = 0
