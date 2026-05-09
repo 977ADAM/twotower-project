@@ -25,7 +25,7 @@ def main():
     )
 
     model = TwoTower(tower_dims=(256, 128), dropout=0.1, side_feature_embedding_dim=16, hidden_dim=128)
-    history = model.fit(
+    result = model.fit(
         train_df,
         validation_data=valid_df,
         query_col="user_id",
@@ -42,7 +42,8 @@ def main():
         patience=10,
         early_stopping_metric="recall_at_100",
     )
-    console.print({"history_tail": history[-3:]})
+    console.print({"history_tail": result.history[-3:]})
+    result.plot("training_loss.png")
 
     metrics = model.evaluate(test_df, top_k=config.top_k)
     console.print({"metrics": metrics})

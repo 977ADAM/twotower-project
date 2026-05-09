@@ -34,6 +34,7 @@ from twotower._src.retrieval.predict import TwoTowerPredictor
 from twotower._src.training.fit import (
     EarlyStopping,
     FitInputs,
+    FitResult,
     NegativeSampling,
     TwoTowerTrainer,
     build_pairwise_loader,
@@ -126,7 +127,7 @@ class TwoTower(TwoTowerBase):
         patience: int | None = 5,
         early_stopping_metric: str = "valid_loss",
         min_delta: float = 1e-4,
-    ) -> list[dict[str, float]]:
+    ) -> FitResult:
         """Fit the model on interaction pairs."""
         self.query_col = query_col
         self.candidate_col = candidate_col
@@ -202,7 +203,7 @@ class TwoTower(TwoTowerBase):
 
         self.invalidate_item_embedding_cache()
 
-        return self.train_history
+        return fit_result
 
     @filter_traceback
     def retrieve(

@@ -17,7 +17,7 @@ def main() -> None:
     movies_df, train_df, valid_df, test_df = load_training_frames(config)
 
     model = TwoTower(tower_dims=(128, 64), dropout=0.1, hidden_dim=64)
-    history = model.fit(
+    result = model.fit(
         train_df,
         validation_data=valid_df,
         query_col="userId",
@@ -32,8 +32,9 @@ def main() -> None:
         eval_top_ks=(50,),
         top_k=50,
     )
-    
-    console.print({"history_tail": history[-3:]})
+
+    console.print({"history_tail": result.history[-3:]})
+    result.plot("training_loss.png")
 
     metrics = model.evaluate(test_df, top_k=config.top_k)
     console.print({"metrics": metrics})
