@@ -103,9 +103,9 @@ class FitResult:
                 "matplotlib is required for plotting. Install it with: pip install matplotlib"
             )
 
-        epochs = [int(r["epoch"]) for r in self.history]
+        epochs = [r["epoch"] for r in self.history]
         train_losses = [r["train_loss"] for r in self.history]
-        valid_epochs = [int(r["epoch"]) for r in self.history if r.get("valid_loss") is not None]
+        valid_epochs = [r["epoch"] for r in self.history if r.get("valid_loss") is not None]
         valid_losses = [r["valid_loss"] for r in self.history if r.get("valid_loss") is not None]
 
         fig, ax = plt.subplots()

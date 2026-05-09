@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import math
 import sys
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
@@ -363,7 +362,5 @@ def test_plot_raises_import_error_when_matplotlib_missing():
 
 
 def test_plot_raises_value_error_on_empty_history():
-    mock_plt, mock_fig, mock_ax = _make_mocks()
-    with patch.dict(sys.modules, {"matplotlib": MagicMock(), "matplotlib.pyplot": mock_plt}):
-        with pytest.raises(ValueError, match="training history is empty"):
-            FitResult(history=[]).plot()
+    with pytest.raises(ValueError, match="training history is empty"):
+        FitResult(history=[]).plot()
