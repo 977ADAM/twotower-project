@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import math
+import sys
+from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pandas as pd
 import pytest
@@ -11,6 +14,7 @@ from twotower._src.config import _Config
 from twotower._src.training.fit import (
     EarlyStopping,
     FitInputs,
+    FitResult,
     NegativeSampling,
     PairwiseInteractionsDataset,
     TwoTowerTrainer,
@@ -289,3 +293,71 @@ def test_trainer_fit_computes_recall_metrics_when_eval_during_training(interacti
     for record in fit_result.history:
         assert record["recall_at_10"] == pytest.approx(0.5)
         assert record["recall_at_50"] == pytest.approx(0.5)
+
+
+# ---------------------------------------------------------------------------
+# FitResult.plot() tests
+# ---------------------------------------------------------------------------
+
+def _make_mocks():
+    mock_plt = MagicMock()
+    mock_fig = MagicMock()
+    mock_ax = MagicMock()
+    mock_plt.subplots.return_value = (mock_fig, mock_ax)
+    return mock_plt, mock_fig, mock_ax
+
+
+_HISTORY_NO_VALID = [
+    {"epoch": 1.0, "train_loss": 0.5},
+    {"epoch": 2.0, "train_loss": 0.4},
+]
+
+_HISTORY_WITH_VALID = [
+    {"epoch": 1.0, "train_loss": 0.5, "valid_loss": 0.6},
+    {"epoch": 2.0, "train_loss": 0.4, "valid_loss": 0.5},
+]
+
+
+def test_plot_calls_show_when_no_path():
+    mock_plt, mock_fig, mock_ax = _make_mocks()
+    with patch.dict(sys.modules, {"matplotlib": MagicMock(), "matplotlib.pyplot": mock_plt}):
+        FitResult(history=_HISTORY_NO_VALID).plot()
+    mock_plt.show.assert_called_once()
+    mock_fig.savefig.assert_not_called()
+
+
+def test_plot_saves_file_when_path_given():
+    mock_plt, mock_fig, mock_ax = _make_mocks()
+    with patch.dict(sys.modules, {"matplotlib": MagicMock(), "matplotlib.pyplot": mock_plt}):
+        FitResult(history=_HISTORY_NO_VALID).plot("loss.png")
+    mock_fig.savefig.assert_called_once_with("loss.png")
+    mock_plt.show.assert_not_called()
+
+
+def test_plot_omits_valid_loss_when_absent():
+    mock_plt, mock_fig, mock_ax = _make_mocks()
+    with patch.dict(sys.modules, {"matplotlib": MagicMock(), "matplotlib.pyplot": mock_plt}):
+        FitResult(history=_HISTORY_NO_VALID).plot()
+    assert mock_ax.plot.call_count == 1
+    mock_ax.legend.assert_not_called()
+
+
+def test_plot_draws_valid_loss_when_present():
+    mock_plt, mock_fig, mock_ax = _make_mocks()
+    with patch.dict(sys.modules, {"matplotlib": MagicMock(), "matplotlib.pyplot": mock_plt}):
+        FitResult(history=_HISTORY_WITH_VALID).plot()
+    assert mock_ax.plot.call_count == 2
+    mock_ax.legend.assert_called_once()
+
+
+def test_plot_raises_import_error_when_matplotlib_missing():
+    with patch.dict(sys.modules, {"matplotlib": None, "matplotlib.pyplot": None}):
+        with pytest.raises(ImportError, match="pip install matplotlib"):
+            FitResult(history=_HISTORY_NO_VALID).plot()
+
+
+def test_plot_raises_value_error_on_empty_history():
+    mock_plt, mock_fig, mock_ax = _make_mocks()
+    with patch.dict(sys.modules, {"matplotlib": MagicMock(), "matplotlib.pyplot": mock_plt}):
+        with pytest.raises(ValueError, match="training history is empty"):
+            FitResult(history=[]).plot()

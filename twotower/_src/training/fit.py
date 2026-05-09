@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import importlib
 import random
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Iterator, Protocol
 
 import pandas as pd
@@ -89,6 +91,37 @@ class FitResult:
     """Artifacts returned by the trainer after fitting."""
 
     history: list[dict[str, float]]
+
+    def plot(self, path: str | Path | None = None) -> None:
+        try:
+            plt = importlib.import_module('matplotlib.pyplot')
+        except ImportError:
+            raise ImportError(
+                "matplotlib is required for plotting. Install it with: pip install matplotlib"
+            )
+        if not self.history:
+            raise ValueError("Cannot plot: training history is empty.")
+
+        epochs = [int(r["epoch"]) for r in self.history]
+        train_losses = [r["train_loss"] for r in self.history]
+        valid_epochs = [int(r["epoch"]) for r in self.history if r.get("valid_loss") is not None]
+        valid_losses = [r["valid_loss"] for r in self.history if r.get("valid_loss") is not None]
+
+        fig, ax = plt.subplots()
+        ax.plot(epochs, train_losses, label="train_loss", color="tab:red")
+        if valid_losses:
+            ax.plot(valid_epochs, valid_losses, label="valid_loss", color="tab:blue", linestyle="--")
+            ax.legend()
+        ax.set_xlabel("Epoch")
+        ax.set_ylabel("Loss")
+        ax.set_title("Training Loss")
+        ax.xaxis.get_major_locator().set_params(integer=True)
+
+        if path is None:
+            plt.show()
+        else:
+            fig.savefig(path)
+        plt.close(fig)
 
 
 class PairwiseInteractionsDataset(Dataset[tuple[torch.Tensor, torch.Tensor, torch.Tensor]]):
