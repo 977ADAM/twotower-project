@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import torch
 
-from twotower._src.training.losses._types import LossInputs, LossResult
+from twotower._src.training.losses import LossInputs, LossResult
 from twotower._src.training.losses.bpr_loss import compute_bpr_loss
 
 

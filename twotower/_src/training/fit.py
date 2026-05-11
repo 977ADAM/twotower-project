@@ -13,8 +13,7 @@ from torch.utils.data import DataLoader, Dataset
 
 from twotower._src.config import _Config
 from twotower._src.protocols import _HasConfig, _HasEmbeddings, _HasIDMappings
-from twotower._src.training.losses import LOSS_REGISTRY
-from twotower._src.training.losses._types import LossInputs, LossResult
+from twotower._src.training.losses import LOSS_REGISTRY, LossInputs, LossResult
 from twotower._src.training.progress import EpochProgress, EpochSummary
 
 

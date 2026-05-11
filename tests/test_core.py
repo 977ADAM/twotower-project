@@ -115,7 +115,7 @@ def test_load_model_raises_for_missing_file():
 def test_fit_uses_registered_loss_fn(small_interactions):
     from unittest.mock import MagicMock, patch
     import torch
-    from twotower._src.training.losses._types import LossInputs, LossResult
+    from twotower._src.training.losses import LossInputs, LossResult
 
     train, valid, _ = small_interactions
     model = TwoTower()

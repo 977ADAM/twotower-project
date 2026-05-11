@@ -5,7 +5,7 @@ from typing import Any, Protocol
 
 import pandas as pd
 import torch
-import torch.nn as nn
+import torch.nn.functional as F
 from torch.utils.data import DataLoader
 
 from twotower._src.metrics import mean_recall, user_recall, MetricInputs, MetricResult
@@ -113,7 +113,6 @@ class TwoTowerEvaluator:
         prefix: str = "valid",
     ) -> dict[str, float]:
         model.eval()
-        criterion = nn.LogSigmoid()
         loss_sum = 0.0
         total = 0
 
@@ -125,7 +124,7 @@ class TwoTowerEvaluator:
 
                 positive_scores = model.score_pairs(user_batch, pos_item_batch)
                 negative_scores = model.score_pairs(user_batch, neg_item_batch)
-                loss: torch.Tensor = -criterion(positive_scores - negative_scores).mean()
+                loss: torch.Tensor = -F.logsigmoid(positive_scores - negative_scores).mean()
 
                 batch_size = user_batch.size(0)
                 loss_sum += loss.item() * batch_size
