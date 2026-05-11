@@ -24,7 +24,7 @@ def main():
         / 2.0
     )
 
-    model = TwoTower(tower_dims=(256, 128), dropout=0.1, side_feature_embedding_dim=16, hidden_dim=128)
+    model = TwoTower(tower_dims=(256, 128, 64), dropout=0.1, side_feature_embedding_dim=16, hidden_dim=128)
     result = model.fit(
         train_df,
         validation_data=valid_df,
