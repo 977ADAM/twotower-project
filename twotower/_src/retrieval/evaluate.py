@@ -9,6 +9,7 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 
 from twotower._src.metrics import mean_recall, user_recall
+from twotower._src.metrics._types import MetricInputs, MetricResult
 from twotower._src.protocols import _HasConfig, _HasIDMappings
 
 
@@ -182,7 +183,7 @@ class TwoTowerEvaluator:
                 pos for pos, cid in enumerate(item_ids) if cid not in excluded
             ]
             if not candidate_positions:
-                recalls.append(0.0)
+                recalls.append(MetricResult(value=0.0))
                 continue
 
             user_idx = torch.tensor(
@@ -196,9 +197,9 @@ class TwoTowerEvaluator:
             k = min(top_k, scores.size(0))
             _, top_positions = torch.topk(scores, k=k)
             predicted_items = {item_ids[candidate_positions[p]] for p in top_positions.cpu().tolist()}
-            recalls.append(user_recall(actual_items, predicted_items))
+            recalls.append(user_recall(MetricInputs(actual=actual_items, predicted=predicted_items)))
 
-        return mean_recall(recalls)
+        return mean_recall(recalls).value
 
     def popularity_recall_at_k(
         self,
@@ -233,6 +234,6 @@ class TwoTowerEvaluator:
                 if len(predicted_items) == top_k:
                     break
 
-            recalls.append(user_recall(actual_items, set(predicted_items)))
+            recalls.append(user_recall(MetricInputs(actual=actual_items, predicted=set(predicted_items))))
 
-        return mean_recall(recalls)
+        return mean_recall(recalls).value
