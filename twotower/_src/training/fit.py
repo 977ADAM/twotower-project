@@ -4,7 +4,7 @@ import importlib
 import random
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Iterator, Protocol
+from typing import Any, Callable, Iterator, Protocol
 
 import pandas as pd
 import torch
@@ -13,17 +13,9 @@ from torch.utils.data import DataLoader, Dataset
 
 from twotower._src.config import _Config
 from twotower._src.protocols import _HasConfig, _HasEmbeddings, _HasIDMappings
+from twotower._src.training.losses import LOSS_REGISTRY
+from twotower._src.training.losses._types import LossInputs, LossResult
 from twotower._src.training.progress import EpochProgress, EpochSummary
-
-
-def compute_bpr_loss(
-    positive_scores: torch.Tensor,
-    negative_scores: torch.Tensor,
-    criterion: nn.Module,
-) -> torch.Tensor:
-    """Compute a pairwise Bayesian Personalized Ranking loss."""
-    result: torch.Tensor = -criterion(positive_scores - negative_scores).mean()
-    return result
 
 
 
@@ -286,6 +278,7 @@ class TwoTowerTrainer:
         inputs: FitInputs,
         negative_sampling: NegativeSampling = NegativeSampling(),
         early_stopping: EarlyStopping | None = EarlyStopping(),
+        loss_fn: str = "BPR",
     ) -> FitResult:
         """Run the full training loop and return training artifacts."""
         model.build_towers(inputs.num_users, inputs.num_items)
@@ -296,7 +289,7 @@ class TwoTowerTrainer:
         train_loader = self.build_train_loader(model, inputs, negative_sampling)
         valid_loader = self.build_valid_loader(model, inputs, negative_sampling) if has_validation else None
         optimizer = self.build_optimizer(model)
-        criterion = self.build_loss()
+        loss_func = LOSS_REGISTRY[loss_fn]
 
         state = FitState()
         best_metric_value: float | None = None
@@ -316,11 +309,11 @@ class TwoTowerTrainer:
                     model=model,
                     train_loader=train_loader,
                     optimizer=optimizer,
-                    criterion=criterion,
+                    loss_func=loss_func,
                     negative_sampling=negative_sampling,
                     progress=progress,
                 )
-                valid_metrics = self.validate(model=model, valid_loader=valid_loader, criterion=criterion)
+                valid_metrics = self.validate(model=model, valid_loader=valid_loader, loss_func=loss_func)
                 recall_metrics = self.compute_recall_metrics(model, inputs) if need_recall else {}
                 epoch_metrics = self.merge_epoch_metrics(
                     epoch=epoch,
@@ -373,10 +366,6 @@ class TwoTowerTrainer:
             weight_decay=self.config.weight_decay,
         )
 
-    def build_loss(self) -> nn.Module:
-        """Create the retrieval loss."""
-        return nn.LogSigmoid()
-
     def build_train_loader(
         self,
         model: _Trainable,
@@ -422,7 +411,7 @@ class TwoTowerTrainer:
         model: _Trainable,
         train_loader: DataLoader[Any],
         optimizer: torch.optim.Optimizer,
-        criterion: nn.Module,
+        loss_func: Callable[[LossInputs], LossResult],
         negative_sampling: NegativeSampling,
         progress: EpochProgress | None = None,
     ) -> dict[str, float]:
@@ -441,11 +430,11 @@ class TwoTowerTrainer:
 
             positive_scores = model.score_pairs(user_batch, pos_item_batch)
             negative_scores = model.score_pairs(user_batch, neg_item_batch)
-            loss = compute_bpr_loss(
+            result = loss_func(LossInputs(
                 positive_scores=positive_scores,
                 negative_scores=negative_scores,
-                criterion=criterion,
-            )
+            ))
+            loss = result.loss
 
             if use_in_batch:
                 logits = model.retrieval_logits(user_batch, pos_item_batch)
@@ -471,7 +460,7 @@ class TwoTowerTrainer:
         self,
         model: _Trainable,
         valid_loader: DataLoader[Any] | None,
-        criterion: nn.Module,
+        loss_func: Callable[[LossInputs], LossResult],
     ) -> dict[str, float]:
         """Run validation and return validation metrics. Returns {} if no validation loader."""
         if valid_loader is None:
@@ -489,11 +478,11 @@ class TwoTowerTrainer:
 
                 positive_scores = model.score_pairs(user_batch, pos_item_batch)
                 negative_scores = model.score_pairs(user_batch, neg_item_batch)
-                loss = compute_bpr_loss(
+                result = loss_func(LossInputs(
                     positive_scores=positive_scores,
                     negative_scores=negative_scores,
-                    criterion=criterion,
-                )
+                ))
+                loss = result.loss
 
                 batch_size = user_batch.size(0)
                 loss_sum += loss.item() * batch_size

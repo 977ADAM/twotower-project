@@ -127,6 +127,7 @@ class TwoTower(TwoTowerBase):
         patience: int | None = 5,
         early_stopping_metric: str = "valid_loss",
         min_delta: float = 1e-4,
+        loss_fn: str = "BPR",
     ) -> FitResult:
         """Fit the model on interaction pairs."""
         self.query_col = query_col
@@ -198,6 +199,7 @@ class TwoTower(TwoTowerBase):
             self, fit_inputs,
             negative_sampling=negative_sampling,
             early_stopping=early_stopping,
+            loss_fn=loss_fn,
         )
         self.train_history = fit_result.history
 

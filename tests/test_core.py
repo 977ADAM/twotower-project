@@ -110,3 +110,25 @@ def test_save_and_load_produces_identical_predictions(fitted_model, small_intera
 def test_load_model_raises_for_missing_file():
     with pytest.raises(FileNotFoundError):
         TwoTower().load_model("nonexistent.pth")
+
+
+def test_fit_uses_registered_loss_fn(small_interactions):
+    from unittest.mock import MagicMock, patch
+    import torch
+    from twotower._src.training.losses._types import LossInputs, LossResult
+
+    train, valid, _ = small_interactions
+    model = TwoTower()
+
+    mock_loss = MagicMock(return_value=LossResult(loss=torch.tensor(0.5, requires_grad=True)))
+    with patch.dict("twotower._src.training.losses.LOSS_REGISTRY", {"MOCK": mock_loss}):
+        model.fit(
+            train, validation_data=valid,
+            epochs=1, batch_size=8,
+            eval_during_training=False, device="cpu", seed=0,
+            patience=None, loss_fn="MOCK",
+        )
+
+    mock_loss.assert_called()
+    call_arg = mock_loss.call_args[0][0]
+    assert isinstance(call_arg, LossInputs)
