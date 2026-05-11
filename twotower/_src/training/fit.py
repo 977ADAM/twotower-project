@@ -289,6 +289,11 @@ class TwoTowerTrainer:
         train_loader = self.build_train_loader(model, inputs, negative_sampling)
         valid_loader = self.build_valid_loader(model, inputs, negative_sampling) if has_validation else None
         optimizer = self.build_optimizer(model)
+        if loss_fn not in LOSS_REGISTRY:
+            raise ValueError(
+                f"Unknown loss_fn {loss_fn!r}. "
+                f"Available: {sorted(LOSS_REGISTRY)}"
+            )
         loss_func = LOSS_REGISTRY[loss_fn]
 
         state = FitState()

@@ -132,3 +132,16 @@ def test_fit_uses_registered_loss_fn(small_interactions):
     mock_loss.assert_called()
     call_arg = mock_loss.call_args[0][0]
     assert isinstance(call_arg, LossInputs)
+
+
+def test_fit_raises_for_unknown_loss_fn(small_interactions):
+    import pytest
+    train, valid, _ = small_interactions
+    model = TwoTower()
+    with pytest.raises(ValueError, match="Unknown loss_fn"):
+        model.fit(
+            train, validation_data=valid,
+            epochs=1, batch_size=8,
+            eval_during_training=False, device="cpu", seed=0,
+            patience=None, loss_fn="NONEXISTENT",
+        )
