@@ -8,8 +8,7 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 
-from twotower._src.metrics import mean_recall, user_recall
-from twotower._src.metrics._types import MetricInputs, MetricResult
+from twotower._src.metrics import mean_recall, user_recall, MetricInputs, MetricResult
 from twotower._src.protocols import _HasConfig, _HasIDMappings
 
 
@@ -197,7 +196,7 @@ class TwoTowerEvaluator:
             k = min(top_k, scores.size(0))
             _, top_positions = torch.topk(scores, k=k)
             predicted_items = {item_ids[candidate_positions[p]] for p in top_positions.cpu().tolist()}
-            recalls.append(user_recall(MetricInputs(actual=actual_items, predicted=predicted_items)))
+            recalls.append(user_recall(MetricInputs(actual=frozenset(actual_items), predicted=frozenset(predicted_items))))
 
         return mean_recall(recalls).value
 
@@ -234,6 +233,6 @@ class TwoTowerEvaluator:
                 if len(predicted_items) == top_k:
                     break
 
-            recalls.append(user_recall(MetricInputs(actual=actual_items, predicted=set(predicted_items))))
+            recalls.append(user_recall(MetricInputs(actual=frozenset(actual_items), predicted=frozenset(predicted_items))))
 
         return mean_recall(recalls).value

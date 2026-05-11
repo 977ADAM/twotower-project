@@ -5,8 +5,8 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class MetricInputs:
-    actual: set[int]
-    predicted: set[int]
+    actual: frozenset[int]
+    predicted: frozenset[int]
 
 
 @dataclass(frozen=True)
